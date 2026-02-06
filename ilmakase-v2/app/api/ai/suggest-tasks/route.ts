@@ -35,6 +35,16 @@ export async function POST(request: Request) {
     return NextResponse.json(result)
   } catch (error) {
     console.error('AI 제안 생성 오류:', error)
+
+    // Gemini API 429 에러 (할당량 초과) 감지
+    const errorMessage = error instanceof Error ? error.message : ''
+    if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('Too Many Requests')) {
+      return NextResponse.json(
+        { error: 'API 할당량 초과 - 잠시 후 다시 시도해주세요' },
+        { status: 429 }
+      )
+    }
+
     return NextResponse.json(
       { error: 'AI 제안 생성에 실패했습니다' },
       { status: 500 }

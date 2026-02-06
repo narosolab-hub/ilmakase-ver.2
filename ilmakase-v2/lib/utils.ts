@@ -60,41 +60,9 @@ export function calculateCompletionRate(
   return Math.round((completed / tasks.length) * 100)
 }
 
-// 평균 진척도 계산
-export function calculateAverageProgress(
-  tasks: Array<{ progress: number }>
-): number {
-  if (tasks.length === 0) return 0
-  const sum = tasks.reduce((acc, t) => acc + t.progress, 0)
-  return Math.round(sum / tasks.length)
-}
-
 // 클래스명 결합
 export function cn(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(' ')
-}
-
-// 숫자를 한글 단위로 표시
-export function formatNumber(num: number): string {
-  if (num >= 10000) {
-    return `${(num / 10000).toFixed(1)}만`
-  }
-  if (num >= 1000) {
-    return `${(num / 1000).toFixed(1)}천`
-  }
-  return num.toString()
-}
-
-// 디바운스 함수
-export function debounce<T extends (...args: unknown[]) => unknown>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout | null = null
-  return (...args: Parameters<T>) => {
-    if (timeout) clearTimeout(timeout)
-    timeout = setTimeout(() => func(...args), wait)
-  }
 }
 
 // 기간 계산 (개월 수)

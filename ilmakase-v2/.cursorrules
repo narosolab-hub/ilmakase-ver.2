@@ -1,0 +1,176 @@
+# 일마카세 v2 코드 규칙
+
+## 네이밍 규칙
+
+### TypeScript (클라이언트)
+- 변수, 함수, 타입: **camelCase**
+- 컴포넌트: **PascalCase**
+- 상수: **UPPER_SNAKE_CASE**
+
+```typescript
+// Good
+const workLogs = []
+function handleSave() {}
+interface WorkLog {}
+const MAX_RETRY_COUNT = 3
+
+// Bad
+const work_logs = []
+function handle_save() {}
+```
+
+### DB 필드 (Supabase)
+- DB 테이블/컬럼: **snake_case** (Supabase 기본)
+- 타입 정의 시 DB 필드는 snake_case 유지
+- 컴포넌트에서 사용 시 camelCase로 변환하는 매핑 레이어 사용
+
+```typescript
+// DB 타입 (snake_case 유지)
+interface WorkLogDB {
+  user_id: string
+  work_date: string
+  is_completed: boolean
+}
+
+// 클라이언트 타입 (camelCase 변환)
+interface WorkLog {
+  userId: string
+  workDate: string
+  isCompleted: boolean
+}
+```
+
+> ⚠️ **현재 기술 부채**: 아직 매핑 미적용 상태. 점진적 마이그레이션 계획은 `CLAUDE.md > 기술 부채` 섹션 참고
+
+## 코드 스타일
+
+### 주석
+- 자체 설명력 있는 코드에는 주석 금지
+- 복잡한 비즈니스 로직에만 주석
+- TODO는 이슈 번호와 함께: `// TODO(#123): 설명`
+
+```typescript
+// Bad - 불필요한 주석
+const [loading, setLoading] = useState(false) // 로딩 상태
+
+// Good - 필요한 곳에만
+// 세부 업무 완료 시 90%, 메인 완료 시 +10% (총 100%)
+const progress = (completedCount / total) * 90 + (isMainCompleted ? 10 : 0)
+```
+
+### 중복 코드
+- 3번 이상 반복되는 패턴은 함수로 추출
+- 유틸리티 함수는 lib/utils.ts에 추가
+
+```typescript
+// Bad - 패턴 반복
+localStatusCache.current.set(key, value)
+setCacheVersion(v => v + 1)
+// ... 5번 더 반복
+
+// Good - 함수 추출
+const updateLocalCache = (key: string, status: LocalTaskStatus) => {
+  localStatusCache.current.set(key, status)
+  setCacheVersion(v => v + 1)
+}
+```
+
+### 타입 정의
+- 사용하지 않는 타입은 삭제
+- 과도한 generic 지양
+- 구체적인 타입 선호
+
+```typescript
+// Bad - 과도한 generic
+interface Response<T, U, V> { ... }
+
+// Good - 필요한 만큼만
+interface ApiResponse<T> { data: T; error?: string }
+```
+
+## 상태 관리
+
+### React State
+- 관련 상태는 하나의 객체로 묶기
+- useReducer 고려 (상태가 5개 이상일 때)
+
+```typescript
+// Bad - 산발적 상태
+const [editingMemo, setEditingMemo] = useState(null)
+const [memoText, setMemoText] = useState('')
+const [savingMemo, setSavingMemo] = useState(false)
+
+// Good - 관련 상태 묶기
+const [memoState, setMemoState] = useState({
+  editing: null,
+  text: '',
+  saving: false
+})
+```
+
+### 캐싱
+- TTL은 상수로 정의
+- 캐시 키는 cacheKeys 헬퍼 사용
+
+```typescript
+// lib/cache.ts
+const CACHE_TTL = {
+  SHORT: 5 * 60 * 1000,   // 5분
+  MEDIUM: 30 * 60 * 1000, // 30분
+  LONG: 24 * 60 * 60 * 1000, // 24시간
+}
+```
+
+## 에러 처리
+
+### 로깅
+- console.error는 개발 중에만
+- 프로덕션은 에러 트래킹 서비스 사용
+- 에러 메시지는 사용자 친화적으로
+
+```typescript
+// Bad
+console.error('saveLog 에러:', JSON.stringify(error, null, 2))
+console.error('에러 코드:', error.code)
+console.error('에러 메시지:', error.message)
+
+// Good
+console.error('[saveLog]', error)
+alert('저장에 실패했습니다. 다시 시도해주세요.')
+```
+
+## 파일 구조
+
+```
+ilmakase-v2/
+├── app/                    # Next.js App Router
+│   ├── (main)/            # 메인 레이아웃 그룹
+│   ├── (auth)/            # 인증 레이아웃 그룹
+│   └── api/               # API 라우트
+├── components/
+│   ├── [Feature]/         # 기능별 폴더 (PascalCase)
+│   └── UI/                # 공통 UI 컴포넌트
+├── hooks/                 # Custom hooks (use* 네이밍)
+├── lib/                   # 유틸리티
+│   ├── supabase/         # Supabase 클라이언트
+│   └── gemini/           # AI 관련
+└── types/                 # 타입 정의
+```
+
+## 금지 사항
+
+1. **any 타입 사용 금지** - unknown 또는 구체적 타입 사용
+2. **as unknown as 캐스팅 지양** - 타입 정의로 해결
+3. **매직 넘버 금지** - 상수로 정의
+4. **console.log 커밋 금지** - 디버깅 후 제거
+5. **주석 처리된 코드 커밋 금지** - 삭제하고 git으로 관리
+
+## AI 코드 리뷰 체크리스트
+
+코드 작성 후 다음 항목 확인:
+- [ ] 네이밍이 camelCase/PascalCase 규칙을 따르는가?
+- [ ] 불필요한 주석이 없는가?
+- [ ] 3번 이상 반복되는 패턴이 있는가? → 함수 추출
+- [ ] 사용하지 않는 import/변수/타입이 있는가? → 삭제
+- [ ] 에러 처리가 일관적인가?
+- [ ] 매직 넘버가 있는가? → 상수화

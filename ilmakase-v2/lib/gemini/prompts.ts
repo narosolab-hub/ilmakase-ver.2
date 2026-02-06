@@ -1,6 +1,5 @@
 import { generateJSON } from './client'
 import type {
-  AIPreviewResponse,
   AIAnalysisResponse,
   AIDailyAnalysisResponse,
   CareerDocResponse,
@@ -102,47 +101,60 @@ export async function generateCareerDocument(
     sample_works: string[];
   }>
 ): Promise<CareerDocResponse> {
-  const systemPrompt = `당신은 모든 직군을 아우르는 '전천후 포트폴리오 컨설턴트'입니다.
+  const systemPrompt = `당신은 IT/스타트업 채용 담당자입니다.
+"이 사람이 실제로 뭘 했는지" 명확하게 드러나는 경력기술서만 통과시킵니다.
 
-[목표]
-사용자의 업무 기록을 분석하여, 채용 담당자가 매력을 느낄 수 있는 경력기술서를 3가지 버전으로 작성해주세요.
+===== 절대 규칙 =====
+1. 없는 데이터는 절대 지어내지 마세요
+   - 수치가 없으면 수치 없이 작성
+   - 성과가 없으면 성과 문장 생략
+   - STAR의 result도 데이터 없으면 "업무 기록에 성과 미기재"로 작성
 
-[규칙]
-1. 간결형 (200자): 핵심만 담아 바로 복붙 가능
-2. 상세형 (500자): 태스크별 상세 설명
-3. STAR 형식: 면접 대비용
-4. 구체적인 숫자 포함
-5. 쉬운 단어 사용 (고등학생도 이해 가능)
-6. 과장하지 않고 현실적으로`
+2. 다음 표현 절대 금지 (AI스러운 표현)
+   ❌ "혁신적인", "효율적인", "원활한", "체계적인"
+   ❌ "~에 기여함", "~를 담당하며", "~를 수행함"
+   ❌ "적극적으로 참여", "성공적으로 수행"
+   ❌ "다양한 경험", "폭넓은 이해"
+
+3. 좋은 표현 예시
+   ✅ "응답속도 800ms → 240ms"
+   ✅ "전환율 12% → 21%"
+   ✅ "Node.js 기반 API 개발"
+   ✅ "Figma로 모바일 앱 UI 설계"
+
+===== 출력 형식 =====
+- 간결형: 실제 한 일만 나열 (200자)
+- 상세형: 태스크별로 구체적 행동 (500자)
+- STAR: 면접용, 없는 데이터는 솔직하게 "미기재"`
 
   const tasksText = tasksSummary
     .map(t => `- ${t.task_name} (${t.work_count}개 업무)\n  예시: ${t.sample_works.slice(0, 3).join(', ')}`)
     .join('\n')
 
-  const prompt = `다음 프로젝트의 경력기술서를 생성해주세요:
+  const prompt = `⚠️ 아래 데이터에 없는 내용은 절대 쓰지 마세요.
 
 프로젝트명: ${projectInfo.name}
 기간: ${projectInfo.period.start} ~ ${projectInfo.period.end}
-역할: ${projectInfo.role || '미지정'}
-팀 규모: ${projectInfo.team_size || '미지정'}
+역할: ${projectInfo.role || '미입력'}
+팀 규모: ${projectInfo.team_size || '미입력'}
 
 태스크별 업무:
-${tasksText}
+${tasksText || '(업무 기록 없음)'}
 
-다음 JSON 형식으로 응답해주세요:
+JSON 형식:
 {
-  "brief_version": "간결형 경력기술서 (200자 내외)",
-  "detailed_version": "상세형 경력기술서 (500자 내외, 태스크별 설명 포함)",
+  "brief_version": "간결형 (200자, 없는 성과는 생략)",
+  "detailed_version": "상세형 (500자, 태스크별 설명)",
   "star_version": {
-    "situation": "상황 설명",
-    "task": "맡은 역할/과제",
-    "action": ["수행한 핵심 행동 1", "수행한 핵심 행동 2"],
-    "result": ["달성한 성과 1", "달성한 성과 2"]
+    "situation": "상황 (데이터 기반으로만)",
+    "task": "맡은 역할",
+    "action": ["실제 한 행동만"],
+    "result": ["성과 데이터 있으면 작성, 없으면 '업무 기록에 성과 미기재'"]
   },
   "thinking_analysis": [
     {
-      "type": "사고방식 유형 (예: 리스크 선제 관리)",
-      "description": "해당 사고방식이 드러나는 구체적 근거"
+      "type": "업무에서 드러나는 사고방식",
+      "description": "구체적 근거"
     }
   ]
 }`
@@ -249,57 +261,51 @@ ${projectsText}
 
 /**
  * 프롬프트 6: AI 업무 확장 제안 (사수 코칭)
- * 사용자가 입력한 업무를 기반으로 추가로 확인/검토해야 할 업무 제안
+ * 친근한 사수처럼 질문 형식으로 피드백
  */
 export async function generateTaskSuggestions(
   tasks: Array<{ project: string; content: string }>,
   projectContext?: { name: string; description?: string }
 ): Promise<AICoachingResponse> {
-  const systemPrompt = `당신은 경력 10년차 시니어 멘토입니다.
-사수 없이 혼자 일하는 주니어를 도와주세요.
+  const systemPrompt = `당신은 같은 팀에서 3년 동안 함께 일한 믿음직한 사수예요.
+후배가 놓치기 쉬운 '진짜 실무 포인트'를 콕콕 짚어주는 스타일이에요.
 
-당신의 역할:
-- 주니어가 업무를 할 때 놓치기 쉬운 것들을 미리 알려주기
-- "아, 이것도 해야 하는구나" 싶은 것들 제안하기
-- 너무 당연한 것(예: "열심히 하세요")은 제외
-- 실제로 업무에 도움이 되는 구체적인 체크포인트 제안
+당신의 특징:
+- "이거 흔히 빠뜨리더라~" 하면서 경험에서 나온 구체적인 케이스를 알려줌
+- 포괄적인 조언("꼼꼼히 확인하세요") 대신 딱 집어서 말함 ("iOS에서 푸시 권한 거부했을 때 처리 확인했어요?")
+- 가끔 "나도 예전에 이거 빼먹어서 혼났어요 ㅎㅎ" 같은 공감 섞인 말투
 
-<규칙>
-1. 각 업무당 2-4개의 확인사항 제안
-2. 실무적이고 구체적인 내용으로
-3. 주니어가 바로 실행할 수 있는 수준으로
-4. 친근하지만 전문적인 톤으로
-5. 한국어로 응답
-</규칙>`
+반드시 지킬 것:
+- 추상적인 말 금지 (X: "에러 케이스 확인", O: "결제 실패 시 장바구니 상품 복구되는지")
+- 업무당 2개의 구체적인 체크포인트
+- 실제 주니어가 자주 놓치는 것 위주로`
 
   const tasksText = tasks
     .map((t, i) => `${i + 1}. [${t.project}] ${t.content}`)
     .join('\n')
 
-  const contextText = projectContext
-    ? `\n프로젝트 정보: ${projectContext.name}${projectContext.description ? ` - ${projectContext.description}` : ''}`
-    : ''
+  const contextText = projectContext?.name ? ` (프로젝트: ${projectContext.name})` : ''
 
-  const prompt = `주니어가 오늘 할 업무입니다:
+  const prompt = `후배가 오늘 할 일이에요:
 
 ${tasksText}${contextText}
 
-이 업무들을 할 때 놓치기 쉽지만 확인해야 할 것들을 제안해주세요.
+사수로서 "아 그거 확인했어요?" 하고 물어볼 구체적인 포인트를 알려주세요.
+"꼼꼼히 확인하세요" 같은 뻔한 말 말고, 실제로 놓치기 쉬운 거요!
 
-다음 JSON 형식으로 응답해주세요:
+JSON:
 {
   "coaching": [
     {
-      "task": "원래 업무 내용",
+      "task": "업무내용만",
       "suggestions": [
-        "확인해볼 것 1",
-        "확인해볼 것 2",
-        "확인해볼 것 3"
+        "구체적인 체크 질문 1 (예: 비회원 상태에서도 테스트해봤어요?)",
+        "구체적인 체크 질문 2"
       ],
-      "why": "왜 이런 제안을 하는지 한 문장 (선택)"
+      "why": "짧은 이유 (선배 경험담이면 더 좋음)"
     }
   ],
-  "overall_tip": "오늘 업무 전체에 대한 한 마디 조언 (선택)"
+  "overall_tip": "오늘 업무에 대한 한마디 (격려나 꿀팁)"
 }`
 
   return generateJSON<AICoachingResponse>(prompt, systemPrompt)

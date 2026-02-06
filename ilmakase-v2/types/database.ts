@@ -9,6 +9,44 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      companies: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          position: string | null
+          department: string | null
+          start_date: string | null
+          end_date: string | null
+          is_current: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          position?: string | null
+          department?: string | null
+          start_date?: string | null
+          end_date?: string | null
+          is_current?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          position?: string | null
+          department?: string | null
+          start_date?: string | null
+          end_date?: string | null
+          is_current?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
       users: {
         Row: {
           id: string
@@ -63,6 +101,7 @@ export interface Database {
         Row: {
           id: string
           user_id: string
+          company_id: string | null
           name: string
           description: string | null
           status: '진행중' | '완료' | '보류'
@@ -76,6 +115,7 @@ export interface Database {
         Insert: {
           id?: string
           user_id: string
+          company_id?: string | null
           name: string
           description?: string | null
           status?: '진행중' | '완료' | '보류'
@@ -89,6 +129,7 @@ export interface Database {
         Update: {
           id?: string
           user_id?: string
+          company_id?: string | null
           name?: string
           description?: string | null
           status?: '진행중' | '완료' | '보류'
@@ -145,6 +186,7 @@ export interface Database {
           is_completed: boolean
           ai_analysis: Json | null
           keywords: string[]
+          subtasks: Json | null
           created_at: string
           updated_at: string
         }
@@ -160,6 +202,7 @@ export interface Database {
           is_completed?: boolean
           ai_analysis?: Json | null
           keywords?: string[]
+          subtasks?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -175,6 +218,7 @@ export interface Database {
           is_completed?: boolean
           ai_analysis?: Json | null
           keywords?: string[]
+          subtasks?: Json | null
           created_at?: string
           updated_at?: string
         }

@@ -88,12 +88,14 @@ export default function ProjectsPage() {
               </div>
             </div>
 
-            <Button
-              variant="primary"
-              onClick={() => setShowNewProject(true)}
-            >
-              + 새 프로젝트
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowNewProject(true)}
+              >
+                + 새 프로젝트
+              </Button>
+            </div>
           </div>
 
           {/* 탭 메뉴 */}
@@ -131,6 +133,27 @@ export default function ProjectsPage() {
 
       {/* 메인 컨텐츠 */}
       <main className="max-w-7xl mx-auto px-6 py-6">
+        {/* 경력기술서 생성 배너 */}
+        <a
+          href="/career-doc"
+          className="block mb-6 p-4 bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl text-white hover:from-primary-600 hover:to-primary-700 transition-all shadow-lg hover:shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-lg">경력기술서 생성하기</h3>
+              <p className="text-sm text-white/80 mt-1">
+                회사별로 프로젝트를 정리하고 AI가 경력기술서를 작성해드려요
+              </p>
+            </div>
+            <div className="flex items-center gap-2 bg-white/20 px-4 py-2 rounded-xl">
+              <span>시작하기</span>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </div>
+        </a>
+
         {/* 새 프로젝트 폼 */}
         {showNewProject && (
           <Card className="mb-6">
@@ -261,18 +284,6 @@ export default function ProjectsPage() {
                               상세 정보 편집
                             </Button>
                             <Button
-                              variant="outline"
-                              size="sm"
-                              fullWidth
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                // TODO: 프로젝트 카드 생성 페이지로 이동
-                                alert('경력기술서 생성 기능 (준비 중)')
-                              }}
-                            >
-                              경력기술서 생성
-                            </Button>
-                            <Button
                               variant="ghost"
                               size="sm"
                               fullWidth
@@ -343,7 +354,7 @@ export default function ProjectsPage() {
                         )}
 
                         {selectedProject === project.id && (
-                          <div className="pt-3 border-t border-gray-200 space-y-2">
+                          <div className="pt-3 border-t border-gray-200">
                             <Button
                               variant="primary"
                               size="sm"
@@ -354,17 +365,6 @@ export default function ProjectsPage() {
                               }}
                             >
                               상세 정보 편집
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              fullWidth
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                alert('경력기술서 생성 기능 (준비 중)')
-                              }}
-                            >
-                              경력기술서 생성
                             </Button>
                           </div>
                         )}

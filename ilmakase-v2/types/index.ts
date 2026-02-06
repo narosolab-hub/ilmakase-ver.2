@@ -1,3 +1,10 @@
+// 세부 업무 타입
+export interface Subtask {
+  id: string
+  content: string
+  is_completed: boolean
+}
+
 // 파싱된 태스크 타입
 export interface ParsedTask {
   lineIndex: number;
@@ -7,27 +14,11 @@ export interface ParsedTask {
   progress: number;
 }
 
-// AI 분석 응답 타입
-export interface AIPreviewResponse {
-  items: Array<{
-    original: string;
-    skill: string;
-    portfolioTerm: string;
-  }>;
-}
-
 export interface AIAnalysisResponse {
   pattern: string;
   workflow: string;
   keywords: string[];
   insight: string;
-}
-
-export interface AICardResponse {
-  title: string;
-  tasks: string[];
-  results: string[];
-  thinking_summary: string;
 }
 
 // 일일 분석 응답
@@ -66,63 +57,31 @@ export interface CareerDocResponse {
   }[];
 }
 
-// 월간 리뷰 통계
-export interface MonthlyStats {
-  total_work_days: number;
-  avg_completion_rate: number;
-  work_type_distribution: Record<string, number>;
-  project_distribution: Record<string, number>;
-}
-
-// 프로젝트 매칭 결과
-export interface ProjectMatchResult {
-  matched: boolean;
-  project: {
-    id: string;
-    name: string;
-    score: number;
-  } | null;
-  alternatives: Array<{
-    id: string;
-    name: string;
-    score: number;
-  }>;
-  suggestNew: boolean;
-  suggestedName?: string;
-}
-
-// 프로젝트 카드 상세
-export interface ProjectCardDetail {
-  id: string;
-  name: string;
-  period: {
-    start: string;
-    end: string;
-  };
-  role: string;
-  team_size: string;
-  total_tasks: number;
-  completion_rate: number;
-  tasks_by_category: Record<string, {
-    count: number;
-    items: string[];
-  }>;
-  thinking_analysis: {
-    type: string;
-    description: string;
-  }[];
-}
-
 // 프로젝트 성과 타입
 export interface ProjectOutcome {
   type: 'quantitative' | 'qualitative'  // 정량적 / 정성적
   content: string
 }
 
+// 회사 타입 (경력기술서용)
+export interface Company {
+  id: string
+  user_id: string
+  name: string
+  position: string | null       // 직무/직급
+  department: string | null     // 부서
+  start_date: string | null
+  end_date: string | null
+  is_current: boolean           // 현재 재직중
+  created_at: string
+  updated_at: string
+}
+
 // 프로젝트 타입
 export interface Project {
   id: string
   user_id: string
+  company_id: string | null        // 회사 연결 (경력기술서용)
   name: string
   description: string | null
   status: '진행중' | '완료' | '보류'
@@ -141,24 +100,3 @@ export interface Project {
   updated_at: string
 }
 
-// 플랜 제한
-export interface PlanLimits {
-  free: {
-    ai_analysis: 3;
-    career_doc: 1;
-    monthly_review: false;
-    insights: false;
-  };
-  basic: {
-    ai_analysis: -1; // unlimited
-    career_doc: -1;
-    monthly_review: true;
-    insights: 1; // per month
-  };
-  premium: {
-    ai_analysis: -1;
-    career_doc: -1;
-    monthly_review: true;
-    insights: -1;
-  };
-}

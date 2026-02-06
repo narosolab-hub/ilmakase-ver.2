@@ -31,16 +31,19 @@ export function useDailyLog(targetDate: string) {
       return
     }
 
-    // 캐시에서 즉시 표시 (이미 있으면 로딩 상태 해제)
     const cacheKey = cacheKeys.dailyLog(user.id, targetDate)
     const cached = dataCache.getImmediate<DailyLog>(cacheKey)
+
+    // 캐시 있으면 즉시 표시, 없으면 로딩
     if (cached) {
       setLog(cached)
       setLoading(false)
+    } else {
+      setLog(null)
+      setLoading(true)
     }
 
     try {
-      if (!cached) setLoading(true)
       const supabase = createClient()
 
       const { data, error } = await supabase
@@ -91,11 +94,7 @@ export function useDailyLog(targetDate: string) {
       .maybeSingle()
 
     if (error) {
-      console.error('saveLog 에러:', JSON.stringify(error, null, 2))
-      console.error('에러 코드:', error.code)
-      console.error('에러 메시지:', error.message)
-      console.error('에러 상세:', error.details)
-      console.error('에러 힌트:', error.hint)
+      console.error('[saveLog]', error)
       throw error
     }
 

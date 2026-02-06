@@ -34,7 +34,7 @@
   background: #9ca3af;
 }
 
-/* Slider Thumb */
+/* Slider - 투명하게 (커스텀 UI 사용) */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
@@ -44,23 +44,15 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
-  background: #f97316;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  width: 0;
+  height: 0;
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  background: #f97316;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  width: 0;
+  height: 0;
+  border: none;
+  background: transparent;
 }
 
 /* Animations */
@@ -107,8 +99,28 @@ input[type="range"]::-moz-range-thumb {
   animation: pulse-slow 4s ease-in-out infinite;
 }
 
-/* Focus visible */
-*:focus-visible {
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+/* Focus visible - 버튼/링크에만 적용 (input/textarea 제외) */
+button:focus-visible,
+a:focus-visible {
   outline: 2px solid #f97316;
   outline-offset: 2px;
+}
+
+/* textarea, input은 border 변경으로 처리 */
+textarea:focus,
+input:focus {
+  outline: none;
 }

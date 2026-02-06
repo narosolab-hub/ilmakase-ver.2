@@ -68,11 +68,11 @@ export default function CalendarView({ selectedDate, onDateSelect }: CalendarVie
 
   const monthStart = startOfMonth(currentMonth)
   const monthEnd = endOfMonth(currentMonth)
-  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 })
-  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 })
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 })
 
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd })
-  const weekDays = ['월', '화', '수', '목', '금', '토', '일']
+  const weekDays = ['일', '월', '화', '수', '목', '금', '토']
 
   const goToPrevMonth = () => setCurrentMonth(subMonths(currentMonth, 1))
   const goToNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1))
@@ -108,7 +108,7 @@ export default function CalendarView({ selectedDate, onDateSelect }: CalendarVie
           <div
             key={day}
             className={`text-center text-xs font-medium py-1 ${
-              i === 5 ? 'text-blue-500' : i === 6 ? 'text-red-500' : 'text-gray-500'
+              i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-500'
             }`}
           >
             {day}

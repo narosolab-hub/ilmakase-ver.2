@@ -4,20 +4,28 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from './useAuth'
 import { dataCache, cacheKeys } from '@/lib/cache'
-import type { ParsedTask } from '@/types'
+import { mapWorkLog, mapWorkLogToDB, type WorkLog } from '@/lib/mappers'
+import type { ParsedTask, Subtask } from '@/types'
 
-interface WorkLog {
-  id: string
-  user_id: string
-  task_id: string | null
-  project_id: string | null
-  content: string
-  detail: string | null
-  work_date: string
-  progress: number
-  is_completed: boolean
-  ai_analysis: unknown
-  keywords: string[]
+// 세부 업무 기반 진척도 계산
+// 세부 업무 있을 때: (완료된 세부 업무 / 전체 세부 업무) * 90 + (메인 완료 ? 10 : 0)
+// 세부 업무 없을 때: 기존 수동 진척도 또는 완료 여부에 따른 진척도
+export function calculateProgressFromSubtasks(
+  subtasks: Subtask[] | null | undefined,
+  isCompleted: boolean,
+  manualProgress?: number
+): number {
+  if (!subtasks || subtasks.length === 0) {
+    // 세부 업무 없으면 기존 로직
+    if (isCompleted) return 100
+    return manualProgress ?? 0
+  }
+
+  const completedCount = subtasks.filter(s => s.is_completed).length
+  const subtaskProgress = (completedCount / subtasks.length) * 90
+  const mainBonus = isCompleted ? 10 : 0
+
+  return Math.round(subtaskProgress + mainBonus)
 }
 
 export function useWorkLogs(targetDate: string) {
@@ -59,9 +67,10 @@ export function useWorkLogs(targetDate: string) {
 
       if (error) throw error
 
-      // 캐시 저장
-      dataCache.set(cacheKey, data || [])
-      setWorkLogs(data || [])
+      // DB → Client 변환 후 캐시 저장
+      const mapped = (data || []).map(mapWorkLog)
+      dataCache.set(cacheKey, mapped)
+      setWorkLogs(mapped)
     } catch (err) {
       setError(err as Error)
       console.error('Failed to fetch work logs:', err)
@@ -76,9 +85,11 @@ export function useWorkLogs(targetDate: string) {
 
   // 파싱된 태스크로부터 work_logs 동기화
   // 기존 진행도/완료 상태를 보존하면서 동기화
+  // carryOverData: 미완료 업무에서 가져온 세부 업무/메모 데이터
   const syncFromParsedTasks = useCallback(async (
     tasks: ParsedTask[],
-    projectMappings: Record<string, string> = {}
+    projectMappings: Record<string, string> = {},
+    carryOverData?: Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number }>
   ) => {
     if (!user) throw new Error('로그인이 필요합니다')
 
@@ -129,15 +140,23 @@ export function useWorkLogs(targetDate: string) {
 
     // 새 로그 삽입
     if (tasksToInsert.length > 0) {
-      const logsToInsert = tasksToInsert.map(task => ({
-        user_id: user.id,
-        project_id: projectMappings[task.project_name] || null,
-        content: task.content,
-        work_date: targetDate,
-        progress: 0,
-        is_completed: false,
-        keywords: [task.project_name],
-      }))
+      const logsToInsert = tasksToInsert.map(task => {
+        // carryOverData에서 세부 업무/메모 가져오기
+        const cacheKey = `${task.project_name}:${task.content}`
+        const carryOver = carryOverData?.get(cacheKey)
+
+        return {
+          user_id: user.id,
+          project_id: projectMappings[task.project_name] || null,
+          content: task.content,
+          work_date: targetDate,
+          progress: carryOver?.progress ?? 0,
+          is_completed: false,
+          keywords: [task.project_name],
+          detail: carryOver?.detail ?? null,
+          subtasks: carryOver?.subtasks ?? null,
+        }
+      })
 
       await supabase.from('work_logs').insert(logsToInsert)
     }
@@ -171,12 +190,13 @@ export function useWorkLogs(targetDate: string) {
 
     if (error) throw error
 
-    // 캐시 갱신
+    // DB → Client 변환 후 캐시 갱신
+    const mapped = (updatedLogs || []).map(mapWorkLog)
     const cacheKey = cacheKeys.workLogs(user.id, targetDate)
-    dataCache.set(cacheKey, updatedLogs || [])
+    dataCache.set(cacheKey, mapped)
 
-    setWorkLogs(updatedLogs || [])
-    return updatedLogs
+    setWorkLogs(mapped)
+    return mapped
   }, [user, targetDate])
 
   const updateWorkLog = useCallback(async (
@@ -186,10 +206,11 @@ export function useWorkLogs(targetDate: string) {
     if (!user) throw new Error('로그인이 필요합니다')
 
     const supabase = createClient()
+    const dbUpdates = mapWorkLogToDB(updates)
 
     const { data, error } = await supabase
       .from('work_logs')
-      .update(updates)
+      .update(dbUpdates)
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
@@ -197,8 +218,9 @@ export function useWorkLogs(targetDate: string) {
 
     if (error) throw error
 
-    setWorkLogs(prev => prev.map(log => log.id === id ? data : log))
-    return data
+    const mapped = mapWorkLog(data)
+    setWorkLogs(prev => prev.map(log => log.id === id ? mapped : log))
+    return mapped
   }, [user])
 
   const deleteWorkLog = useCallback(async (id: string) => {
