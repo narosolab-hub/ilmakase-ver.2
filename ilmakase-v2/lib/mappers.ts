@@ -25,6 +25,7 @@ export interface WorkLog {
   projectId: string | null
   content: string
   detail: string | null
+  dueDate: string | null
   workDate: string
   progress: number
   isCompleted: boolean
@@ -42,14 +43,15 @@ export const mapWorkLog = (db: WorkLogDB): WorkLog => ({
   projectId: db.project_id,
   content: db.content,
   detail: db.detail,
+  dueDate: db.due_date ?? null,
   workDate: db.work_date,
-  progress: db.progress,
-  isCompleted: db.is_completed,
+  progress: db.progress ?? 0,
+  isCompleted: db.is_completed ?? false,
   aiAnalysis: db.ai_analysis,
-  keywords: db.keywords,
+  keywords: db.keywords ?? [],
   subtasks: db.subtasks as Subtask[] | null,
-  createdAt: db.created_at,
-  updatedAt: db.updated_at,
+  createdAt: db.created_at ?? '',
+  updatedAt: db.updated_at ?? '',
 })
 
 export const mapWorkLogToDB = (client: Partial<WorkLog>): Partial<WorkLogDB> => {
@@ -60,6 +62,7 @@ export const mapWorkLogToDB = (client: Partial<WorkLog>): Partial<WorkLogDB> => 
   if (client.projectId !== undefined) result.project_id = client.projectId
   if (client.content !== undefined) result.content = client.content
   if (client.detail !== undefined) result.detail = client.detail
+  if (client.dueDate !== undefined) result.due_date = client.dueDate
   if (client.workDate !== undefined) result.work_date = client.workDate
   if (client.progress !== undefined) result.progress = client.progress
   if (client.isCompleted !== undefined) result.is_completed = client.isCompleted
@@ -91,10 +94,10 @@ export const mapDailyLog = (db: DailyLogDB): DailyLog => ({
   userId: db.user_id,
   logDate: db.log_date,
   rawContent: db.raw_content,
-  parsedTasksCount: db.parsed_tasks_count,
-  completionRate: db.completion_rate,
-  createdAt: db.created_at,
-  updatedAt: db.updated_at,
+  parsedTasksCount: db.parsed_tasks_count ?? 0,
+  completionRate: db.completion_rate ?? 0,
+  createdAt: db.created_at ?? '',
+  updatedAt: db.updated_at ?? '',
 })
 
 // ============================================

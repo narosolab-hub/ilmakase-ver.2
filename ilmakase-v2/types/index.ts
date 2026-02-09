@@ -57,6 +57,48 @@ export interface CareerDocResponse {
   }[];
 }
 
+// 월간 회고 - AI 사수 피드백
+export interface MentorPoint {
+  title: string
+  detail: string
+  relatedWork?: string
+}
+
+export interface MentorFeedback {
+  mentorSummary: string
+  goodPoints: MentorPoint[]
+  improvementPoints: MentorPoint[]
+  nextMonthTips: string[]
+}
+
+// 월간 회고 - KPT
+export interface KPTReflection {
+  keep: string
+  problem: string
+  try: string
+}
+
+// 월간 회고 - 업무 요약
+export interface ProjectWorkGroup {
+  projectId: string | null
+  projectName: string
+  tasks: Array<{
+    content: string
+    detail: string | null
+    subtasks: Array<{ id: string; content: string; is_completed: boolean }> | null
+    progress: number
+    isCompleted: boolean
+  }>
+  completedCount: number
+  totalCount: number
+}
+
+export interface MonthlyWorkSummary {
+  totalTasks: number
+  completedTasks: number
+  projects: ProjectWorkGroup[]
+}
+
 // 프로젝트 성과 타입
 export interface ProjectOutcome {
   type: 'quantitative' | 'qualitative'  // 정량적 / 정성적
@@ -92,8 +134,8 @@ export interface Project {
   // 경력기술서용 필드
   role: string | null              // 담당 역할
   team_size: string | null         // 팀 규모
-  tech_stack: string[]             // 기술 스택
-  outcomes: ProjectOutcome[]       // 성과/결과
+  tech_stack: string[] | null       // 기술 스택
+  outcomes: ProjectOutcome[] | null // 성과/결과
   contribution: string | null      // 기여도/담당 업무 설명
   summary: string | null           // 프로젝트 한 줄 요약
   created_at: string

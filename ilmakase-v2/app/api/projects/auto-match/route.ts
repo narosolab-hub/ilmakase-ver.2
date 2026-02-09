@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     // AI를 사용한 매칭 (API 키가 있는 경우)
     if (process.env.GOOGLE_AI_API_KEY) {
       try {
-        const result = await suggestProjectMatch(content, projects)
+        const result = await suggestProjectMatch(content, projects.map(p => ({ ...p, keywords: p.keywords ?? [] })))
 
         if (result.matched_project_id && result.confidence >= 0.8) {
           const matchedProject = projects.find(p => p.id === result.matched_project_id)
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const keywords = extractKeywords(content)
     const matches = projects
       .map(project => {
-        const score = calculateMatchScore(keywords, project.keywords, project.name)
+        const score = calculateMatchScore(keywords, project.keywords ?? [], project.name)
         return { ...project, score }
       })
       .filter(p => p.score > 0)

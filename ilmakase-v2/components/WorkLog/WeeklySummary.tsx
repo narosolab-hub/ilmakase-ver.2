@@ -114,7 +114,7 @@ export default function WeeklySummary({ selectedDate, refreshKey = 0 }: WeeklySu
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-gray-900">이번 주 요약</h3>
         <button
-          onClick={loadWeeklyStats}
+          onClick={() => loadWeeklyStats()}
           disabled={loading}
           className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
           title="새로고침"

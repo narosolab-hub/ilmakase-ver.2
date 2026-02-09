@@ -39,7 +39,7 @@ export async function POST(request: Request) {
             credits_reset_at: now.toISOString(),
           })
           .eq('id', user.id)
-      } else if (userData.ai_credits_used >= 3) {
+      } else if ((userData.ai_credits_used ?? 0) >= 3) {
         return NextResponse.json(
           { error: '이번 달 무료 AI 분석 횟수를 모두 사용했습니다. 업그레이드하시면 무제한으로 사용할 수 있어요!' },
           { status: 403 }

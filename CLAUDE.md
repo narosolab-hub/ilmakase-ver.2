@@ -98,6 +98,10 @@ ilmakase.ver2/
 │   │   │   ├── CalendarView.tsx    # 캘린더
 │   │   │   ├── WeeklySummary.tsx   # 이번 주 요약
 │   │   │   └── DatePicker.tsx
+│   │   ├── Review/
+│   │   │   ├── MonthlyWorkSummary.tsx  # 월간 업무 통계
+│   │   │   ├── MentorFeedback.tsx     # AI 멘토 피드백
+│   │   │   └── KPTReflection.tsx      # KPT 회고
 │   │   ├── Project/
 │   │   │   └── ProjectDetailModal.tsx  # 프로젝트 상세 편집 모달
 │   │   └── UI/
@@ -191,6 +195,7 @@ ilmakase.ver2/
 ### work_logs
 - 개별 업무 (파싱된 결과)
 - `content`, `detail`, `progress`, `is_completed`, `keywords[]`
+- `due_date` (DATE) - 마감일 (nullable)
 - `subtasks` (JSONB) - 세부 업무 목록 `[{id, content, is_completed}]`
 
 ### projects
@@ -352,9 +357,20 @@ if (!initialLoadDone && loading) {
   - JSON 추출 로직 강화 (여러 패턴 시도, 에러 로깅)
   - 프롬프트 전면 개선: "업무 나열 금지, 역할/성과로 재구성" 원칙
   - 세부업무/메모를 적극 활용하여 가치 추출하도록 지시
+- [x] **월간 회고 페이지 전면 개편** (2026-02-09)
+  - MonthlyWorkSummary, MentorFeedback, KPTReflection 컴포넌트 분리
+  - AI 멘토 피드백 생성 (Gemini API)
+  - KPT 회고 저장/편집 기능
+  - 월별 업무 통계 요약
+- [x] **업무 카드 마감일(데드라인) 기능** (2026-02-09)
+  - work_logs 테이블에 due_date 컬럼 추가
+  - 카드 헤더에 마감일 뱃지 (D-day, 지남 경고, 날짜 표시)
+  - 상세 영역에서 날짜 설정/해제
+  - 미완료 업무 가져오기 시 마감일도 함께 복사
+- [x] **메모 줄바꿈 적용** (2026-02-09)
+  - whitespace-pre-wrap 추가
 
 ### 진행 예정
-- [ ] **월간 회고 페이지** ← 다음 작업
 - [ ] (추후) AI 코칭 고도화 후 재도입 검토
 
 ---
@@ -392,6 +408,7 @@ if (!initialLoadDone && loading) {
 ```bash
 database/migrate-companies.sql    # 회사 테이블
 database/migrate-subtasks.sql     # 세부 업무 컬럼 (work_logs.subtasks)
+# work_logs.due_date: ALTER TABLE work_logs ADD COLUMN due_date DATE DEFAULT NULL;
 ```
 
 ### 프롬프트 설계 원칙 (적용 완료)
@@ -491,6 +508,32 @@ task.isCompleted  // camelCase
 - `lib/mappers.ts` - WorkLog, DailyLog 매퍼 (기반)
 - `hooks/useWorkLogs.ts` - WorkLog CRUD (2026-02-06)
 - `components/WorkLog/DailyLogEditor.tsx` - workLog 필드 camelCase 사용 (2026-02-06)
+
+---
+
+## DB 타입 관리
+
+### 타입 자동 생성 (Supabase CLI)
+`types/database.ts`는 직접 수정하지 않는다. DB 스키마 변경 후 아래 명령어로 재생성:
+
+```bash
+cd ilmakase-v2
+npx supabase gen types typescript --project-id tghwiknmkymgejzwvfrz > types/database.ts
+```
+
+> 실행 시 `SUPABASE_ACCESS_TOKEN` 환경변수 필요 (쉘 프로필에 설정하거나 인라인으로 전달)
+
+### 타입 체크
+커밋 전에 반드시 실행:
+
+```bash
+npm run typecheck
+```
+
+### 주의사항
+- `types/database.ts`를 수동으로 편집하면 다음 gen types 시 덮어씌워짐
+- DB에서 nullable인 필드는 코드에서 `?? 기본값` 으로 처리 (ex: `db.progress ?? 0`)
+- `@supabase/supabase-js` 버전 업데이트 후에도 `npm run typecheck`로 깨지는 곳 확인
 
 ---
 

@@ -1,9 +1,82 @@
 import { createClient } from '@/lib/supabase/server'
-import { generateMonthlyInsights } from '@/lib/gemini/prompts'
+import { generateMentorFeedback } from '@/lib/gemini/prompts'
 import { NextResponse } from 'next/server'
-import { startOfMonth, endOfMonth, format, subMonths } from 'date-fns'
+import { startOfMonth, endOfMonth, format } from 'date-fns'
+import type { ProjectWorkGroup, MonthlyWorkSummary } from '@/types'
+import type { Json } from '@/types/database'
 
-// 월간 회고 조회/생성
+// 해당 월의 업무를 프로젝트별로 그룹화
+async function getWorkSummary(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  yearMonth: string
+): Promise<MonthlyWorkSummary> {
+  const [year, month] = yearMonth.split('-').map(Number)
+  const monthStart = format(startOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
+  const monthEnd = format(endOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
+
+  const { data: workLogs } = await supabase
+    .from('work_logs')
+    .select('content, detail, subtasks, progress, is_completed, project_id')
+    .eq('user_id', userId)
+    .gte('work_date', monthStart)
+    .lte('work_date', monthEnd)
+
+  if (!workLogs || workLogs.length === 0) {
+    return { totalTasks: 0, completedTasks: 0, projects: [] }
+  }
+
+  // 프로젝트 이름 가져오기
+  const projectIds = [...new Set(workLogs.map(w => w.project_id).filter(Boolean))] as string[]
+  const { data: projects } = await supabase
+    .from('projects')
+    .select('id, name')
+    .in('id', projectIds.length > 0 ? projectIds : ['__none__'])
+
+  const projectMap = new Map(projects?.map(p => [p.id, p.name]) || [])
+
+  // 프로젝트별 그룹화
+  const groups = new Map<string, ProjectWorkGroup>()
+
+  for (const log of workLogs) {
+    const projectId = log.project_id || null
+    const projectName = projectId ? (projectMap.get(projectId) || '기타') : '기타'
+    const key = projectId || '__none__'
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        projectId,
+        projectName,
+        tasks: [],
+        completedCount: 0,
+        totalCount: 0,
+      })
+    }
+
+    const group = groups.get(key)!
+    const subtasks = Array.isArray(log.subtasks) ? log.subtasks as Array<{ id: string; content: string; is_completed: boolean }> : null
+    group.tasks.push({
+      content: log.content,
+      detail: log.detail || null,
+      subtasks,
+      progress: log.progress ?? 0,
+      isCompleted: log.is_completed ?? false,
+    })
+    group.totalCount++
+    if (log.is_completed) group.completedCount++
+  }
+
+  const totalTasks = workLogs.length
+  const completedTasks = workLogs.filter(w => w.is_completed).length
+
+  return {
+    totalTasks,
+    completedTasks,
+    projects: Array.from(groups.values()).sort((a, b) => b.totalCount - a.totalCount),
+  }
+}
+
+// GET: 월간 회고 조회 (+ 업무 요약)
 export async function GET(request: Request) {
   try {
     const supabase = await createClient()
@@ -15,6 +88,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const yearMonth = searchParams.get('yearMonth') || format(new Date(), 'yyyy-MM')
+    const includeWorkSummary = searchParams.get('includeWorkSummary') === 'true'
 
     // 기존 회고 조회
     const { data: existingReview } = await supabase
@@ -24,11 +98,16 @@ export async function GET(request: Request) {
       .eq('year_month', yearMonth)
       .single()
 
-    if (existingReview) {
-      return NextResponse.json({ review: existingReview })
+    // 업무 요약 (요청 시)
+    let workSummary: MonthlyWorkSummary | undefined
+    if (includeWorkSummary) {
+      workSummary = await getWorkSummary(supabase, user.id, yearMonth)
     }
 
-    return NextResponse.json({ review: null })
+    return NextResponse.json({
+      review: existingReview || null,
+      workSummary,
+    })
   } catch (error: unknown) {
     console.error('월간 회고 조회 에러:', error)
     return NextResponse.json(
@@ -38,6 +117,7 @@ export async function GET(request: Request) {
   }
 }
 
+// POST: AI 사수 피드백 생성
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -53,168 +133,162 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '연월이 필요합니다' }, { status: 400 })
     }
 
-    // 사용자 플랜 확인
-    const { data: userData } = await supabase
-      .from('users')
-      .select('plan')
-      .eq('id', user.id)
-      .single()
+    // 업무 요약 가져오기
+    const workSummary = await getWorkSummary(supabase, user.id, yearMonth)
 
-    if (userData?.plan === 'free') {
-      return NextResponse.json(
-        { error: '월간 회고는 베이직 플랜 이상에서 사용할 수 있습니다' },
-        { status: 403 }
-      )
-    }
-
-    // 해당 월의 업무 기록 가져오기
-    const [year, month] = yearMonth.split('-').map(Number)
-    const monthStart = format(startOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
-    const monthEnd = format(endOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
-
-    const { data: workLogs } = await supabase
-      .from('work_logs')
-      .select('*')
-      .eq('user_id', user.id)
-      .gte('work_date', monthStart)
-      .lte('work_date', monthEnd)
-
-    if (!workLogs || workLogs.length === 0) {
+    if (workSummary.totalTasks === 0) {
       return NextResponse.json(
         { error: '이 달의 업무 기록이 없습니다' },
         { status: 400 }
       )
     }
 
-    // 일별 로그 가져오기
+    // 통계 계산 (기존 필드 호환)
+    const [year, month] = yearMonth.split('-').map(Number)
+    const monthStart = format(startOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
+    const monthEnd = format(endOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
+
     const { data: dailyLogs } = await supabase
       .from('daily_logs')
-      .select('completion_rate')
+      .select('completion_rate, log_date')
       .eq('user_id', user.id)
       .gte('log_date', monthStart)
       .lte('log_date', monthEnd)
 
-    // 통계 계산
-    const uniqueDates = new Set(workLogs.map(w => w.work_date))
+    const uniqueDates = new Set(dailyLogs?.map(d => d.log_date) || [])
     const totalWorkDays = uniqueDates.size
-
     const avgCompletionRate = dailyLogs && dailyLogs.length > 0
-      ? dailyLogs.reduce((sum, log) => sum + (log.completion_rate || 0), 0) / dailyLogs.length
+      ? Math.round(dailyLogs.reduce((sum, log) => sum + (log.completion_rate || 0), 0) / dailyLogs.length)
       : 0
 
     // 프로젝트별 분포
-    const { data: projects } = await supabase
-      .from('projects')
-      .select('id, name')
-      .eq('user_id', user.id)
-
-    const projectMap = new Map(projects?.map(p => [p.id, p.name]) || [])
-    const projectCounts: Record<string, number> = {}
-
-    for (const log of workLogs) {
-      const projectName = log.project_id ? (projectMap.get(log.project_id) || '기타') : '기타'
-      projectCounts[projectName] = (projectCounts[projectName] || 0) + 1
-    }
-
-    const total = workLogs.length
     const projectDistribution: Record<string, number> = {}
-    for (const [name, count] of Object.entries(projectCounts)) {
-      projectDistribution[name] = Math.round((count / total) * 100)
+    for (const p of workSummary.projects) {
+      projectDistribution[p.projectName] = Math.round((p.totalCount / workSummary.totalTasks) * 100)
     }
 
-    // 업무 유형별 분포 (간단한 키워드 기반 분류)
-    const workTypeCounts: Record<string, number> = {
-      '기획': 0,
-      '개발': 0,
-      '디자인': 0,
-      '커뮤니케이션': 0,
-      '문서작업': 0,
-      '기타': 0,
-    }
-
-    for (const log of workLogs) {
-      const content = log.content.toLowerCase()
-      if (/회의|미팅|논의/.test(content)) workTypeCounts['커뮤니케이션']++
-      else if (/기획|분석|조사/.test(content)) workTypeCounts['기획']++
-      else if (/개발|코드|API|버그/.test(content)) workTypeCounts['개발']++
-      else if (/디자인|UI|UX/.test(content)) workTypeCounts['디자인']++
-      else if (/문서|보고|리포트/.test(content)) workTypeCounts['문서작업']++
-      else workTypeCounts['기타']++
-    }
-
-    const workTypeDistribution: Record<string, number> = {}
-    for (const [type, count] of Object.entries(workTypeCounts)) {
-      if (count > 0) {
-        workTypeDistribution[type] = Math.round((count / total) * 100)
-      }
-    }
-
-    // 전월 데이터 가져오기 (비교용)
-    const prevMonthDate = subMonths(new Date(year, month - 1), 1)
-    const prevMonthStart = format(startOfMonth(prevMonthDate), 'yyyy-MM-dd')
-    const prevMonthEnd = format(endOfMonth(prevMonthDate), 'yyyy-MM-dd')
-
-    const { data: prevDailyLogs } = await supabase
-      .from('daily_logs')
-      .select('completion_rate')
-      .eq('user_id', user.id)
-      .gte('log_date', prevMonthStart)
-      .lte('log_date', prevMonthEnd)
-
-    const prevAvgCompletionRate = prevDailyLogs && prevDailyLogs.length > 0
-      ? prevDailyLogs.reduce((sum, log) => sum + (log.completion_rate || 0), 0) / prevDailyLogs.length
-      : null
-
-    // AI 인사이트 생성
-    const monthlyStats = {
-      year_month: yearMonth,
-      total_work_days: totalWorkDays,
-      avg_completion_rate: Math.round(avgCompletionRate),
-      work_type_distribution: workTypeDistribution,
-      project_distribution: projectDistribution,
-    }
-
-    const aiInsights = await generateMonthlyInsights(
-      monthlyStats,
-      prevAvgCompletionRate !== null
-        ? { avg_completion_rate: prevAvgCompletionRate, work_type_distribution: {} }
-        : undefined
+    // AI 사수 피드백 생성
+    const aiInsights = await generateMentorFeedback(
+      yearMonth,
+      workSummary.projects,
+      workSummary.totalTasks,
+      workSummary.completedTasks
     )
 
-    // 월간 비교 데이터
-    const monthlyComparison = prevAvgCompletionRate !== null
-      ? {
-          completion_rate_change: Math.round(avgCompletionRate - prevAvgCompletionRate),
-          previous_month: format(prevMonthDate, 'yyyy-MM'),
-        }
-      : null
+    // DB 저장 (upsert)
+    const reviewData = {
+      user_id: user.id,
+      year_month: yearMonth,
+      total_work_days: totalWorkDays,
+      avg_completion_rate: avgCompletionRate,
+      project_distribution: projectDistribution,
+      ai_insights: aiInsights as unknown as Json,
+    }
 
-    // DB에 저장
-    const { data: review, error: saveError } = await supabase
+    // 기존 row 확인
+    const { data: existing } = await supabase
       .from('monthly_reviews')
-      .insert({
-        user_id: user.id,
-        year_month: yearMonth,
-        total_work_days: totalWorkDays,
-        avg_completion_rate: Math.round(avgCompletionRate),
-        work_type_distribution: workTypeDistribution,
-        project_distribution: projectDistribution,
-        monthly_comparison: monthlyComparison,
-        ai_insights: aiInsights,
-      })
-      .select()
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('year_month', yearMonth)
       .single()
 
-    if (saveError) throw saveError
+    let review
+    if (existing) {
+      // 기존 row 업데이트 (user_reflection은 건드리지 않음)
+      const { data, error } = await supabase
+        .from('monthly_reviews')
+        .update({
+          total_work_days: totalWorkDays,
+          avg_completion_rate: avgCompletionRate,
+          project_distribution: projectDistribution,
+          ai_insights: aiInsights as unknown as Json,
+        })
+        .eq('id', existing.id)
+        .select()
+        .single()
 
-    return NextResponse.json({
-      review,
-      insights: aiInsights,
-    })
+      if (error) throw error
+      review = data
+    } else {
+      const { data, error } = await supabase
+        .from('monthly_reviews')
+        .insert(reviewData)
+        .select()
+        .single()
+
+      if (error) throw error
+      review = data
+    }
+
+    return NextResponse.json({ review })
   } catch (error: unknown) {
     console.error('월간 회고 생성 에러:', error)
     return NextResponse.json(
       { error: '월간 회고 생성에 실패했습니다' },
+      { status: 500 }
+    )
+  }
+}
+
+// PATCH: KPT 저장
+export async function PATCH(request: Request) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
+    }
+
+    const { yearMonth, userReflection } = await request.json()
+
+    if (!yearMonth) {
+      return NextResponse.json({ error: '연월이 필요합니다' }, { status: 400 })
+    }
+
+    // 기존 row 확인
+    const { data: existing } = await supabase
+      .from('monthly_reviews')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('year_month', yearMonth)
+      .single()
+
+    let review
+    if (existing) {
+      const { data, error } = await supabase
+        .from('monthly_reviews')
+        .update({ user_reflection: userReflection })
+        .eq('id', existing.id)
+        .select()
+        .single()
+
+      if (error) throw error
+      review = data
+    } else {
+      // 최소한의 row 생성
+      const { data, error } = await supabase
+        .from('monthly_reviews')
+        .insert({
+          user_id: user.id,
+          year_month: yearMonth,
+          total_work_days: 0,
+          avg_completion_rate: 0,
+          user_reflection: userReflection,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      review = data
+    }
+
+    return NextResponse.json({ review })
+  } catch (error: unknown) {
+    console.error('KPT 저장 에러:', error)
+    return NextResponse.json(
+      { error: 'KPT 저장에 실패했습니다' },
       { status: 500 }
     )
   }

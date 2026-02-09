@@ -70,7 +70,7 @@ ${i + 1}. ${p.name}
    - 역할: ${p.role || '미입력'}
    - 상태: ${p.status}
    - 요약: ${p.summary || '없음'}
-   - 성과: ${p.outcomes?.length ? p.outcomes.map((o: { content: string }) => o.content).join(', ') : '미입력'}
+   - 성과: ${Array.isArray(p.outcomes) && p.outcomes.length ? (p.outcomes as Array<{ content: string }>).map(o => o.content).join(', ') : '미입력'}
    - 기술스택: ${p.tech_stack?.join(', ') || '미입력'}
    - 업무 기록 수: ${p.work_count}개
    - 샘플 업무: ${p.sample_works.join(' / ') || '없음'}

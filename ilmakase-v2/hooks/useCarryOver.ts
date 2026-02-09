@@ -11,6 +11,7 @@ export interface IncompleteTaskData {
   project: string
   date: string
   detail: string | null
+  dueDate: string | null
   subtasks: Subtask[] | null
   progress: number
 }
@@ -52,10 +53,10 @@ export function useCarryOver() {
       const sevenDaysAgo = new Date(targetDateObj)
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-      // subtasks, detail도 함께 가져오기
+      // subtasks, detail, due_date도 함께 가져오기
       const { data: allWorkLogs } = await supabase
         .from('work_logs')
-        .select('content, keywords, work_date, progress, is_completed, detail, subtasks')
+        .select('content, keywords, work_date, progress, is_completed, detail, subtasks, due_date')
         .eq('user_id', user.id)
         .gte('work_date', sevenDaysAgo.toISOString().split('T')[0])
         .lt('work_date', targetDate)
@@ -91,8 +92,9 @@ export function useCarryOver() {
             project: log.keywords?.[0] || '기타',
             date: log.work_date,
             detail: log.detail,
+            dueDate: log.due_date ?? null,
             subtasks: log.subtasks as Subtask[] | null,
-            progress: log.progress,
+            progress: log.progress ?? 0,
           })
         }
       })

@@ -1,55 +1,71 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format, subMonths } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { useAuth } from '@/hooks/useAuth'
-import { Button, Card, CardHeader, CardTitle, CardContent, ProgressBar } from '@/components/UI'
+import { MonthlyWorkSummary, MentorFeedback, KPTReflection } from '@/components/Review'
+import { dataCache, cacheKeys } from '@/lib/cache'
+import type { MonthlyWorkSummary as MonthlyWorkSummaryType, MentorFeedback as MentorFeedbackType, KPTReflection as KPTReflectionType } from '@/types'
 
-interface MonthlyReview {
-  id: string
+interface MonthlyReviewData {
+  id?: string
   year_month: string
   total_work_days: number
   avg_completion_rate: number
-  work_type_distribution: Record<string, number>
-  project_distribution: Record<string, number>
-  monthly_comparison: {
-    completion_rate_change: number
-    previous_month: string
-  } | null
-  ai_insights: {
-    summary: string
-    trends: string[]
-    insights: string[]
-    suggestions: string[]
-  } | null
+  ai_insights: MentorFeedbackType | null
+  user_reflection: string | null
 }
 
 export default function ReviewPage() {
   const { user } = useAuth()
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
-  const [review, setReview] = useState<MonthlyReview | null>(null)
+  const [review, setReview] = useState<MonthlyReviewData | null>(null)
+  const [workSummary, setWorkSummary] = useState<MonthlyWorkSummaryType | null>(null)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [savingKPT, setSavingKPT] = useState(false)
+  const [initialLoadDone, setInitialLoadDone] = useState(false)
 
-  useEffect(() => {
-    if (user) fetchReview()
-  }, [user, selectedMonth])
+  const fetchReview = useCallback(async () => {
+    if (!user) return
 
-  const fetchReview = async () => {
+    // 캐시 확인
+    const cachedReview = dataCache.getImmediate<MonthlyReviewData>(cacheKeys.monthlyReview(user.id, selectedMonth))
+    const cachedSummary = dataCache.getImmediate<MonthlyWorkSummaryType>(cacheKeys.monthlyWorkSummary(user.id, selectedMonth))
+
+    if (cachedReview !== null || cachedSummary !== null) {
+      if (cachedReview) setReview(cachedReview)
+      if (cachedSummary) setWorkSummary(cachedSummary)
+      setInitialLoadDone(true)
+    }
+
     setLoading(true)
     try {
-      const res = await fetch(`/api/monthly-review?yearMonth=${selectedMonth}`)
+      const res = await fetch(`/api/monthly-review?yearMonth=${selectedMonth}&includeWorkSummary=true`)
       const data = await res.json()
-      setReview(data.review)
+
+      setReview(data.review || null)
+      setWorkSummary(data.workSummary || null)
+
+      // 캐시 저장
+      if (data.review) dataCache.set(cacheKeys.monthlyReview(user.id, selectedMonth), data.review)
+      if (data.workSummary) dataCache.set(cacheKeys.monthlyWorkSummary(user.id, selectedMonth), data.workSummary)
     } catch (err) {
       console.error('회고 조회 실패:', err)
     } finally {
       setLoading(false)
+      setInitialLoadDone(true)
     }
-  }
+  }, [user, selectedMonth])
 
-  const generateReview = async () => {
+  useEffect(() => {
+    fetchReview()
+  }, [fetchReview])
+
+  // AI 피드백 생성
+  const generateFeedback = async () => {
+    if (!user) return
     setGenerating(true)
     try {
       const res = await fetch('/api/monthly-review', {
@@ -60,17 +76,71 @@ export default function ReviewPage() {
 
       if (!res.ok) {
         const data = await res.json()
-        alert(data.error || '회고 생성에 실패했습니다')
+        alert(data.error || '피드백 생성에 실패했습니다')
         return
       }
 
       const data = await res.json()
       setReview(data.review)
+      dataCache.set(cacheKeys.monthlyReview(user.id, selectedMonth), data.review)
     } catch (err) {
-      console.error('회고 생성 실패:', err)
-      alert('회고 생성에 실패했습니다')
+      console.error('피드백 생성 실패:', err)
+      alert('피드백 생성에 실패했습니다')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // KPT 저장
+  const saveKPT = async (kpt: KPTReflectionType) => {
+    if (!user) return
+    setSavingKPT(true)
+    try {
+      const res = await fetch('/api/monthly-review', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          yearMonth: selectedMonth,
+          userReflection: JSON.stringify(kpt),
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'KPT 저장에 실패했습니다')
+        return
+      }
+
+      const data = await res.json()
+      setReview(data.review)
+      dataCache.set(cacheKeys.monthlyReview(user.id, selectedMonth), data.review)
+    } catch (err) {
+      console.error('KPT 저장 실패:', err)
+      alert('KPT 저장에 실패했습니다')
+    } finally {
+      setSavingKPT(false)
+    }
+  }
+
+  // ai_insights에서 MentorFeedback 추출 (이전 형식 호환)
+  const getMentorFeedback = (): MentorFeedbackType | null => {
+    if (!review?.ai_insights) return null
+    // mentorSummary 키가 있으면 새 형식
+    if ('mentorSummary' in review.ai_insights) {
+      return review.ai_insights as MentorFeedbackType
+    }
+    // 이전 형식이면 null (새 피드백 받기 유도)
+    return null
+  }
+
+  // user_reflection에서 KPT 추출
+  const getKPT = (): KPTReflectionType => {
+    if (!review?.user_reflection) return { keep: '', problem: '', try: '' }
+    try {
+      return JSON.parse(review.user_reflection) as KPTReflectionType
+    } catch {
+      // 이전에 plain text로 저장된 경우
+      return { keep: review.user_reflection, problem: '', try: '' }
     }
   }
 
@@ -78,6 +148,8 @@ export default function ReviewPage() {
   const months = Array.from({ length: 6 }, (_, i) =>
     format(subMonths(new Date(), i), 'yyyy-MM')
   )
+
+  const hasWorkLogs = (workSummary?.totalTasks ?? 0) > 0
 
   if (!user) {
     return (
@@ -156,132 +228,53 @@ export default function ReviewPage() {
           ))}
         </div>
 
-        {loading ? (
+        {/* 로딩 (초기 로딩만) */}
+        {!initialLoadDone && loading ? (
           <div className="text-center py-12 text-gray-500">로딩 중...</div>
-        ) : review ? (
-          <div className="space-y-6">
-            {/* 요약 카드 */}
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {format(new Date(selectedMonth + '-01'), 'yyyy년 M월', { locale: ko })} 요약
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-gray-50 rounded-xl">
-                    <div className="text-3xl font-bold text-gray-900">
-                      {review.total_work_days}
-                    </div>
-                    <div className="text-sm text-gray-500">업무 일수</div>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-xl">
-                    <div className="text-3xl font-bold text-primary-600">
-                      {review.avg_completion_rate}%
-                    </div>
-                    <div className="text-sm text-gray-500">평균 완료율</div>
-                  </div>
-                  {review.monthly_comparison && (
-                    <div className="text-center p-4 bg-gray-50 rounded-xl col-span-2">
-                      <div className={`text-2xl font-bold ${
-                        review.monthly_comparison.completion_rate_change >= 0
-                          ? 'text-emerald-600'
-                          : 'text-red-500'
-                      }`}>
-                        {review.monthly_comparison.completion_rate_change >= 0 ? '↑' : '↓'}{' '}
-                        {Math.abs(review.monthly_comparison.completion_rate_change)}%p
-                      </div>
-                      <div className="text-sm text-gray-500">전월 대비</div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 업무 유형 분포 */}
-            {review.work_type_distribution && Object.keys(review.work_type_distribution).length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>업무 유형별 분포</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {Object.entries(review.work_type_distribution)
-                      .sort(([, a], [, b]) => b - a)
-                      .map(([type, percentage]) => (
-                        <div key={type}>
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="text-gray-700">{type}</span>
-                            <span className="text-gray-500">{percentage}%</span>
-                          </div>
-                          <ProgressBar value={percentage} color="primary" />
-                        </div>
-                      ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* AI 인사이트 */}
-            {review.ai_insights && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>AI 인사이트</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-gray-700">{review.ai_insights.summary}</p>
-
-                  {review.ai_insights.trends.length > 0 && (
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-2">발견된 트렌드</h4>
-                      <ul className="space-y-1">
-                        {review.ai_insights.trends.map((trend, i) => (
-                          <li key={i} className="text-sm text-gray-600 flex gap-2">
-                            <span>📈</span>
-                            <span>{trend}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {review.ai_insights.suggestions.length > 0 && (
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-2">다음 달 제안</h4>
-                      <ul className="space-y-1">
-                        {review.ai_insights.suggestions.map((suggestion, i) => (
-                          <li key={i} className="text-sm text-gray-600 flex gap-2">
-                            <span>💡</span>
-                            <span>{suggestion}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
         ) : (
-          <Card className="text-center py-12">
-            <CardContent>
-              <div className="text-4xl mb-4">📊</div>
-              <p className="text-gray-500 mb-4">
-                {format(new Date(selectedMonth + '-01'), 'M월', { locale: ko })}의 회고가 없습니다.<br />
-                AI가 이번 달을 분석해드릴게요!
-              </p>
-              <Button
-                variant="primary"
-                onClick={generateReview}
-                loading={generating}
-              >
-                월간 회고 생성하기
-              </Button>
-              <p className="text-xs text-gray-400 mt-3">
-                * 베이직 플랜 이상에서 사용 가능합니다
-              </p>
-            </CardContent>
-          </Card>
+          <div className="space-y-6">
+            {/* 요약 바 */}
+            {workSummary && workSummary.totalTasks > 0 && (
+              <div className="flex items-center gap-4 bg-white rounded-2xl border border-gray-200 shadow-sm px-6 py-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">업무일</span>
+                  <span className="font-bold text-gray-900">{review?.total_work_days ?? '-'}일</span>
+                </div>
+                <div className="w-px h-6 bg-gray-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">업무</span>
+                  <span className="font-bold text-gray-900">{workSummary.totalTasks}개</span>
+                </div>
+                <div className="w-px h-6 bg-gray-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">완료율</span>
+                  <span className="font-bold text-primary-600">
+                    {workSummary.totalTasks > 0
+                      ? Math.round((workSummary.completedTasks / workSummary.totalTasks) * 100)
+                      : 0}%
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* 섹션 1: 이번 달 뭐 했지? */}
+            {workSummary && <MonthlyWorkSummary workSummary={workSummary} />}
+
+            {/* 섹션 2: AI 사수 피드백 */}
+            <MentorFeedback
+              feedback={getMentorFeedback()}
+              generating={generating}
+              hasWorkLogs={hasWorkLogs}
+              onGenerate={generateFeedback}
+            />
+
+            {/* 섹션 3: 내 회고 (KPT) */}
+            <KPTReflection
+              initialKPT={getKPT()}
+              saving={savingKPT}
+              onSave={saveKPT}
+            />
+          </div>
         )}
       </main>
     </div>

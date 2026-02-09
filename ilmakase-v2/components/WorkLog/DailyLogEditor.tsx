@@ -17,6 +17,7 @@ interface DailyLogEditorProps {
 interface TaskWithDB extends ParsedTask {
   workLogId?: string
   detail?: string | null
+  dueDate?: string | null
   subtasks?: Subtask[] | null
 }
 
@@ -24,7 +25,30 @@ interface LocalTaskStatus {
   progress: number
   isCompleted: boolean
   detail?: string | null
+  dueDate?: string | null
   subtasks?: Subtask[] | null
+}
+
+// 마감일 뱃지 표시용 헬퍼
+function getDueDateDisplay(dueDate: string, isCompleted: boolean): { label: string; className: string } | null {
+  if (isCompleted) return null
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const due = new Date(dueDate + 'T00:00:00')
+
+  const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+  if (diffDays < 0) {
+    return { label: '지남', className: 'text-red-500' }
+  }
+  if (diffDays === 0) {
+    return { label: '오늘까지', className: 'text-amber-500' }
+  }
+  // M/D 형식
+  const month = due.getMonth() + 1
+  const day = due.getDate()
+  return { label: `${month}/${day}까지`, className: 'text-gray-400' }
 }
 
 // 사고 체크리스트 질문
@@ -144,6 +168,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           progress,
           isCompleted,
           detail: cachedStatus?.detail ?? matchingLog.detail,
+          dueDate: cachedStatus?.dueDate !== undefined ? cachedStatus.dueDate : matchingLog.dueDate,
           subtasks,
         }
       }
@@ -157,6 +182,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           progress,
           isCompleted: cachedStatus.isCompleted,
           detail: cachedStatus.detail,
+          dueDate: cachedStatus.dueDate,
           subtasks: cachedStatus.subtasks,
         }
       }
@@ -177,6 +203,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       progress: newProgress,
       isCompleted: newCompleted,
       detail: task.detail,
+      dueDate: task.dueDate,
       subtasks: task.subtasks,
     })
 
@@ -208,6 +235,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       progress: newProgress,
       isCompleted: newCompleted,
       detail: task.detail,
+      dueDate: task.dueDate,
       subtasks: task.subtasks,
     })
 
@@ -245,6 +273,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
         progress: existing?.progress ?? task.progress,
         isCompleted: existing?.isCompleted ?? task.isCompleted,
         detail: memoText || null,
+        dueDate: existing?.dueDate !== undefined ? existing.dueDate : task.dueDate,
         subtasks: existing?.subtasks ?? task.subtasks,
       })
 
@@ -274,6 +303,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
         progress: existing?.progress ?? task.progress,
         isCompleted: existing?.isCompleted ?? task.isCompleted,
         detail: null,
+        dueDate: existing?.dueDate !== undefined ? existing.dueDate : task.dueDate,
         subtasks: existing?.subtasks ?? task.subtasks,
       })
 
@@ -281,6 +311,27 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       setEditingMemo(null)
     } catch (err) {
       console.error('[handleDeleteMemo]', err)
+    }
+  }
+
+  const handleDueDateChange = async (task: TaskWithDB, newDueDate: string | null) => {
+    if (!task.workLogId) return
+
+    const cacheKey = `${task.project_name}:${task.content}`
+    const existing = localStatusCache.current.get(cacheKey)
+    updateLocalCache(cacheKey, {
+      progress: existing?.progress ?? task.progress,
+      isCompleted: existing?.isCompleted ?? task.isCompleted,
+      detail: existing?.detail ?? task.detail,
+      dueDate: newDueDate,
+      subtasks: existing?.subtasks ?? task.subtasks,
+    })
+
+    try {
+      await updateWorkLog(task.workLogId, { dueDate: newDueDate })
+    } catch (err) {
+      console.error('[handleDueDateChange]', err)
+      deleteLocalCache(cacheKey)
     }
   }
 
@@ -300,6 +351,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       progress: newProgress,
       isCompleted: task.isCompleted,
       detail: task.detail,
+      dueDate: task.dueDate,
       subtasks: updatedSubtasks,
     })
     setNewSubtaskText('')
@@ -330,6 +382,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       progress: newProgress,
       isCompleted: task.isCompleted,
       detail: task.detail,
+      dueDate: task.dueDate,
       subtasks: updatedSubtasks,
     })
 
@@ -358,6 +411,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       progress: newProgress,
       isCompleted: task.isCompleted,
       detail: task.detail,
+      dueDate: task.dueDate,
       subtasks: updatedSubtasks.length > 0 ? updatedSubtasks : null,
     })
 
@@ -427,13 +481,14 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
         }
       }
 
-      // localStatusCache를 carryOverData로 변환 (세부 업무/메모 복사용)
-      const carryOverData = new Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number }>()
+      // localStatusCache를 carryOverData로 변환 (세부 업무/메모/마감일 복사용)
+      const carryOverData = new Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null }>()
       localStatusCache.current.forEach((value, key) => {
         carryOverData.set(key, {
           detail: value.detail,
           subtasks: value.subtasks,
           progress: value.progress,
+          dueDate: value.dueDate,
         })
       })
 
@@ -465,12 +520,13 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     setText(newText)
     setHasUnsavedChanges(true)
 
-    // 세부 업무/메모를 localStatusCache에 저장 (저장 시 복사됨)
+    // 세부 업무/메모/마감일을 localStatusCache에 저장 (저장 시 복사됨)
     const cacheKey = `${task.project}:${task.content}`
     localStatusCache.current.set(cacheKey, {
       progress: task.progress,
       isCompleted: false,
       detail: task.detail,
+      dueDate: task.dueDate,
       subtasks: task.subtasks,
     })
     setCacheVersion(v => v + 1)
@@ -484,13 +540,14 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     setText(newText)
     setHasUnsavedChanges(true)
 
-    // 모든 미완료 업무의 세부 업무/메모를 localStatusCache에 저장
+    // 모든 미완료 업무의 세부 업무/메모/마감일을 localStatusCache에 저장
     incompleteTasks.forEach(task => {
       const cacheKey = `${task.project}:${task.content}`
       localStatusCache.current.set(cacheKey, {
         progress: task.progress,
         isCompleted: false,
         detail: task.detail,
+        dueDate: task.dueDate,
         subtasks: task.subtasks,
       })
     })
@@ -731,6 +788,18 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                           {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length}
                         </span>
                       )}
+                      {task.dueDate && (() => {
+                        const display = getDueDateDisplay(task.dueDate, task.isCompleted)
+                        if (!display) return null
+                        return (
+                          <span className={`text-xs flex items-center gap-0.5 ${display.className}`}>
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            {display.label}
+                          </span>
+                        )
+                      })()}
                       {task.detail && (
                         <span className="text-xs text-gray-400 flex items-center gap-0.5">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -808,6 +877,42 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                       <p className="text-xs text-gray-400 mt-1">
                         세부 업무 {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length} 완료
                         {task.isCompleted ? ' + 메인 완료' : ''}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 마감일 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-medium text-gray-700">
+                        마감일
+                      </label>
+                      {task.dueDate && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDueDateChange(task, null)
+                          }}
+                          className="text-xs text-gray-400 hover:text-red-500"
+                        >
+                          해제
+                        </button>
+                      )}
+                    </div>
+                    {task.workLogId ? (
+                      <input
+                        type="date"
+                        value={task.dueDate || ''}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          handleDueDateChange(task, e.target.value || null)
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white transition-colors"
+                      />
+                    ) : (
+                      <p className="text-xs text-gray-400 py-2">
+                        먼저 저장 후 마감일을 설정할 수 있습니다
                       </p>
                     )}
                   </div>
@@ -955,7 +1060,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                           e.stopPropagation()
                           handleStartEditMemo(task)
                         }}
-                        className="p-3 bg-white rounded-lg text-sm text-gray-600 cursor-text hover:bg-gray-100 transition-colors"
+                        className="p-3 bg-white rounded-lg text-sm text-gray-600 cursor-text hover:bg-gray-100 transition-colors whitespace-pre-wrap"
                       >
                         {task.detail}
                       </div>

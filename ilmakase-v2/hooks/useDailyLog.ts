@@ -61,7 +61,7 @@ export function useDailyLog(targetDate: string) {
       if (data) {
         dataCache.set(cacheKey, data)
       }
-      setLog(data)
+      setLog(data as DailyLog | null)
     } catch (err) {
       setError(err as Error)
       console.error('Failed to fetch daily log:', err)
@@ -106,7 +106,7 @@ export function useDailyLog(targetDate: string) {
     const cacheKey = cacheKeys.dailyLog(user.id, targetDate)
     dataCache.set(cacheKey, data)
 
-    setLog(data)
+    setLog(data as DailyLog)
     return data
   }, [user, targetDate])
 

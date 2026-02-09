@@ -6,6 +6,7 @@ import { useAuth } from './useAuth'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import { mapWorkLog, mapWorkLogToDB, type WorkLog } from '@/lib/mappers'
 import type { ParsedTask, Subtask } from '@/types'
+import type { Json } from '@/types/database'
 
 // 세부 업무 기반 진척도 계산
 // 세부 업무 있을 때: (완료된 세부 업무 / 전체 세부 업무) * 90 + (메인 완료 ? 10 : 0)
@@ -89,7 +90,7 @@ export function useWorkLogs(targetDate: string) {
   const syncFromParsedTasks = useCallback(async (
     tasks: ParsedTask[],
     projectMappings: Record<string, string> = {},
-    carryOverData?: Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number }>
+    carryOverData?: Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null }>
   ) => {
     if (!user) throw new Error('로그인이 필요합니다')
 
@@ -154,7 +155,8 @@ export function useWorkLogs(targetDate: string) {
           is_completed: false,
           keywords: [task.project_name],
           detail: carryOver?.detail ?? null,
-          subtasks: carryOver?.subtasks ?? null,
+          due_date: carryOver?.dueDate ?? null,
+          subtasks: (carryOver?.subtasks ?? null) as unknown as Json,
         }
       })
 

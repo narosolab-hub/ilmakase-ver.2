@@ -133,21 +133,21 @@ export async function POST(request: Request) {
     }
 
     const formatProject = (p: typeof projectsWithDetails[0]) => {
-      const outcomes = p.outcomes?.map((o: { type: string; content: string }) =>
-        `[${o.type === 'quantitative' ? '정량' : '정성'}] ${o.content}`
-      ).join('\n      ') || '없음'
+      const outcomesArr = (Array.isArray(p.outcomes) ? p.outcomes : []) as Array<{ type: string; content: string }>
+      const outcomes = outcomesArr.length > 0
+        ? outcomesArr.map(o =>
+            `[${o.type === 'quantitative' ? '정량' : '정성'}] ${o.content}`
+          ).join('\n      ')
+        : '없음'
 
       // 업무별 상세 정보 (세부업무 + 메모 포함)
-      const workDetails = p.workLogs.map((w: {
-        content: string
-        detail?: string | null
-        subtasks?: Array<{ content: string; is_completed: boolean }>
-      }) => {
+      const workDetails = p.workLogs.map((w) => {
         const parts = [`    ▸ ${w.content}`]
 
         // 세부 업무가 있으면 추가
-        if (w.subtasks && w.subtasks.length > 0) {
-          const subtaskContents = w.subtasks.map(s => s.content).join(', ')
+        const subtasks = w.subtasks as Array<{ content: string; is_completed: boolean }> | null
+        if (subtasks && subtasks.length > 0) {
+          const subtaskContents = subtasks.map(s => s.content).join(', ')
           parts.push(`      세부: ${subtaskContents}`)
         }
 

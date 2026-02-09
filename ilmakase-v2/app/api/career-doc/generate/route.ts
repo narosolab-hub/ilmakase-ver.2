@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       const now = new Date()
       const resetAt = userData.credits_reset_at ? new Date(userData.credits_reset_at) : null
 
-      if (resetAt && resetAt.getMonth() === now.getMonth() && userData.career_doc_credits_used >= 1) {
+      if (resetAt && resetAt.getMonth() === now.getMonth() && (userData.career_doc_credits_used ?? 0) >= 1) {
         return NextResponse.json(
           { error: '이번 달 무료 경력기술서 생성 횟수를 모두 사용했습니다.' },
           { status: 403 }

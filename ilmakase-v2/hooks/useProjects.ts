@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from './useAuth'
 import type { Project, ProjectOutcome } from '@/types'
+import type { Json } from '@/types/database'
 
 export type { Project, ProjectOutcome }
 
@@ -31,7 +32,7 @@ export function useProjects() {
 
       if (error) throw error
 
-      setProjects(data || [])
+      setProjects((data || []) as unknown as Project[])
     } catch (err) {
       setError(err as Error)
       console.error('Failed to fetch projects:', err)
@@ -76,7 +77,7 @@ export function useProjects() {
         role: options?.role,
         team_size: options?.team_size,
         tech_stack: options?.tech_stack || [],
-        outcomes: options?.outcomes || [],
+        outcomes: (options?.outcomes || []) as unknown as Json,
         contribution: options?.contribution,
         summary: options?.summary,
       })
@@ -90,8 +91,8 @@ export function useProjects() {
       throw error
     }
 
-    setProjects(prev => [data, ...prev])
-    return data
+    setProjects(prev => [data as unknown as Project, ...prev])
+    return data as unknown as Project
   }, [user])
 
   const updateProject = useCallback(async (
@@ -104,7 +105,7 @@ export function useProjects() {
 
     const { data, error } = await supabase
       .from('projects')
-      .update(updates)
+      .update(updates as Record<string, unknown>)
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
@@ -112,8 +113,8 @@ export function useProjects() {
 
     if (error) throw error
 
-    setProjects(prev => prev.map(p => p.id === id ? data : p))
-    return data
+    setProjects(prev => prev.map(p => p.id === id ? data as unknown as Project : p))
+    return data as unknown as Project
   }, [user])
 
   const deleteProject = useCallback(async (id: string) => {

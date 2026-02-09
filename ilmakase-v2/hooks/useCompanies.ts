@@ -28,7 +28,7 @@ export function useCompanies() {
         .order('start_date', { ascending: false, nullsFirst: false })
 
       if (fetchError) throw fetchError
-      setCompanies(data || [])
+      setCompanies((data || []) as unknown as Company[])
     } catch (err) {
       console.error('회사 목록 로드 실패:', err)
       setError('회사 목록을 불러오는데 실패했습니다')
@@ -64,8 +64,8 @@ export function useCompanies() {
 
     if (error) throw error
 
-    setCompanies(prev => [data, ...prev])
-    return data as Company
+    setCompanies(prev => [data as unknown as Company, ...prev])
+    return data as unknown as Company
   }
 
   // 회사 수정
@@ -82,8 +82,8 @@ export function useCompanies() {
 
     if (error) throw error
 
-    setCompanies(prev => prev.map(c => c.id === id ? data : c))
-    return data as Company
+    setCompanies(prev => prev.map(c => c.id === id ? data as unknown as Company : c))
+    return data as unknown as Company
   }
 
   // 회사 삭제

@@ -55,8 +55,8 @@ export default function CalendarView({ selectedDate, onDateSelect }: CalendarVie
         const stats: DateStats = {}
         data.forEach(log => {
           stats[log.log_date] = {
-            tasksCount: log.parsed_tasks_count,
-            completionRate: log.completion_rate,
+            tasksCount: log.parsed_tasks_count ?? 0,
+            completionRate: log.completion_rate ?? 0,
           }
         })
         setDateStats(stats)
