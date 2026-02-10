@@ -54,18 +54,30 @@ export function useCarryOver() {
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
       // subtasks, detail, due_date도 함께 가져오기
-      const { data: allWorkLogs } = await supabase
-        .from('work_logs')
-        .select('content, keywords, work_date, progress, is_completed, detail, subtasks, due_date')
-        .eq('user_id', user.id)
-        .gte('work_date', sevenDaysAgo.toISOString().split('T')[0])
-        .lt('work_date', targetDate)
-        .order('work_date', { ascending: false })
+      const [{ data: allWorkLogs }, { data: todayWorkLogs }] = await Promise.all([
+        supabase
+          .from('work_logs')
+          .select('content, keywords, work_date, progress, is_completed, detail, subtasks, due_date')
+          .eq('user_id', user.id)
+          .gte('work_date', sevenDaysAgo.toISOString().split('T')[0])
+          .lt('work_date', targetDate)
+          .order('work_date', { ascending: false }),
+        supabase
+          .from('work_logs')
+          .select('content')
+          .eq('user_id', user.id)
+          .eq('work_date', targetDate),
+      ])
 
       if (!allWorkLogs || allWorkLogs.length === 0) {
         dataCache.set(cacheKey, [], 5 * 60 * 1000)
         return []
       }
+
+      // 오늘 이미 존재하는 업무 내용 (이미 추가된 미완료 업무 제외용)
+      const todayContents = new Set(
+        (todayWorkLogs || []).map(log => log.content)
+      )
 
       const completedContents = new Set(
         allWorkLogs
@@ -85,6 +97,7 @@ export function useCarryOver() {
 
       workLogs.forEach(log => {
         if (completedContents.has(log.content)) return
+        if (todayContents.has(log.content)) return
 
         if (!uniqueTasks.has(log.content)) {
           uniqueTasks.set(log.content, {

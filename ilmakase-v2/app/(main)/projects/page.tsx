@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useProjects, type Project } from '@/hooks/useProjects'
 import { useAuth } from '@/hooks/useAuth'
-import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '@/components/UI'
+import { Button, Card, CardHeader, CardTitle, CardContent, Input, MobileBottomNav } from '@/components/UI'
 import { ProjectDetailModal } from '@/components/Project'
 import { formatDate, calculatePeriodMonths } from '@/lib/utils'
 
@@ -76,7 +76,7 @@ export default function ProjectsPage() {
     <div className="min-h-screen bg-gray-50">
       {/* 헤더 */}
       <header className="bg-white/80 backdrop-blur-sm sticky top-0 z-40 border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-4 lg:px-6 py-3 lg:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg">
@@ -98,8 +98,8 @@ export default function ProjectsPage() {
             </div>
           </div>
 
-          {/* 탭 메뉴 */}
-          <div className="flex gap-2 mt-4">
+          {/* 탭 메뉴 - 데스크톱만 */}
+          <div className="hidden lg:flex gap-2 mt-4">
             <a
               href="/worklog"
               className="px-5 py-2 rounded-xl font-medium text-gray-600 hover:text-gray-900 hover:bg-white/50"
@@ -132,7 +132,7 @@ export default function ProjectsPage() {
       </header>
 
       {/* 메인 컨텐츠 */}
-      <main className="max-w-7xl mx-auto px-6 py-6">
+      <main className="max-w-7xl mx-auto px-4 lg:px-6 py-6 pb-20 lg:pb-6">
         {/* 경력기술서 생성 배너 */}
         <a
           href="/career-doc"
@@ -386,6 +386,9 @@ export default function ProjectsPage() {
           onSave={handleSaveProject}
         />
       )}
+
+      {/* 모바일: 하단 탭 */}
+      <MobileBottomNav />
     </div>
   )
 }

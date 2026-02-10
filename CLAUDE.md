@@ -97,7 +97,10 @@ ilmakase.ver2/
 │   │   │   ├── DailyLogEditor.tsx  # 메인 업무 입력 에디터
 │   │   │   ├── CalendarView.tsx    # 캘린더
 │   │   │   ├── WeeklySummary.tsx   # 이번 주 요약
-│   │   │   └── DatePicker.tsx
+│   │   │   ├── DatePicker.tsx
+│   │   │   ├── MobileQuickInput.tsx    # 모바일 하단 고정 입력 바
+│   │   │   ├── MobileFullEditor.tsx    # 모바일 풀스크린 에디터
+│   │   │   └── MobileCalendarPanel.tsx # 모바일 캘린더 사이드 패널
 │   │   ├── Review/
 │   │   │   ├── MonthlyWorkSummary.tsx  # 월간 업무 통계
 │   │   │   ├── MentorFeedback.tsx     # AI 멘토 피드백
@@ -108,13 +111,15 @@ ilmakase.ver2/
 │   │       ├── Button.tsx
 │   │       ├── Card.tsx
 │   │       ├── Input.tsx
-│   │       └── ProgressBar.tsx
+│   │       ├── ProgressBar.tsx
+│   │       └── MobileBottomNav.tsx  # 모바일 하단 탭 (3페이지 공용)
 │   ├── hooks/
 │   │   ├── useAuth.ts
 │   │   ├── useDailyLog.ts
 │   │   ├── useWorkLogs.ts          # work_logs CRUD
 │   │   ├── useCarryOver.ts         # 미완료 업무 가져오기
-│   │   └── useProjects.ts
+│   │   ├── useProjects.ts
+│   │   └── useIsMobile.ts          # 모바일 감지 (1024px 기준)
 │   ├── lib/
 │   │   ├── cache.ts                # 메모리 캐시 (탭 전환 최적화)
 │   │   ├── parser.ts               # 업무 텍스트 파싱
@@ -319,7 +324,7 @@ if (!initialLoadDone && loading) {
 
 ---
 
-## 현재 진행 상황 (2026-02-06)
+## 현재 진행 상황 (2026-02-10)
 
 ### 완료
 - [x] 프로젝트 구조 세팅 (ilmakase-v2)
@@ -369,6 +374,25 @@ if (!initialLoadDone && loading) {
   - 미완료 업무 가져오기 시 마감일도 함께 복사
 - [x] **메모 줄바꿈 적용** (2026-02-09)
   - whitespace-pre-wrap 추가
+- [x] **모바일 하이브리드 입력 UX** (2026-02-10)
+  - 하단 고정 입력 바 (MobileQuickInput) — 카톡처럼 1줄 빠른 입력, 엔터로 즉시 저장
+  - 풀스크린 에디터 (MobileFullEditor) — 여러 줄 몰아쓰기, 슬라이드업 오버레이
+  - 모바일: 업무 카드 목록 중심 레이아웃, 데스크톱: 기존 2컬럼 그대로
+  - DailyLogEditor 조건부 렌더링 (isMobile 분기)
+  - saveWithText() 리팩토링 — 텍스트를 인자로 받아 빠른 입력에서도 즉시 저장
+- [x] **모바일 네비게이션 개편** (2026-02-10)
+  - 하단 탭 바 (MobileBottomNav) — 3페이지 공용, usePathname 활성 상태
+  - 캘린더 왼쪽 사이드 패널 (MobileCalendarPanel) — 슬라이드인 + WeeklySummary 포함
+  - 모바일 헤더 간소화: [캘린더 아이콘] < 날짜 > (로고 제거)
+  - 상단 탭 → 데스크톱 전용 (hidden lg:flex)
+- [x] **useIsMobile 훅** (2026-02-10)
+  - matchMedia('max-width: 1023px') 기반, SSR-safe
+- [x] **미완료 업무 중복 버그 수정** (2026-02-10)
+  - useCarryOver에서 오늘 work_logs도 병렬 조회하여 이미 존재하는 업무 제외
+  - dismissedIncompleteRef 패턴으로 컴포넌트 마운트 중 추가된 항목 추적
+  - 추가 시 invalidateCache 호출로 캐시 무효화
+- [x] **체크박스 요동 버그 수정** (2026-02-10)
+  - key={task.lineIndex} → key={project:content:idx} 변경 (빈 줄 삽입 시 안정)
 
 ### 진행 예정
 - [ ] (추후) AI 코칭 고도화 후 재도입 검토

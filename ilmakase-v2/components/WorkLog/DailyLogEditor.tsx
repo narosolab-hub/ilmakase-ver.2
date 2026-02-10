@@ -1,13 +1,16 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { parseAllTasks } from '@/lib/parser'
 import { ParsedTask, Subtask } from '@/types'
 import { useDailyLog } from '@/hooks/useDailyLog'
 import { useWorkLogs, calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
 import { useCarryOver, IncompleteTaskData } from '@/hooks/useCarryOver'
 import { useProjects } from '@/hooks/useProjects'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { Button } from '@/components/UI'
+import MobileQuickInput from './MobileQuickInput'
+import MobileFullEditor from './MobileFullEditor'
 
 interface DailyLogEditorProps {
   targetDate: string
@@ -65,6 +68,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const { workLogs, syncFromParsedTasks, updateWorkLog, deleteWorkLog } = useWorkLogs(targetDate)
   const { getIncompleteTasks, invalidateCache, carryingOver } = useCarryOver()
   const { findProjectByName, createProject } = useProjects()
+  const isMobile = useIsMobile()
 
   const [text, setText] = useState('')
   const [parsedTasks, setParsedTasks] = useState<ParsedTask[]>([])
@@ -75,6 +79,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
+  const [fullEditorOpen, setFullEditorOpen] = useState(false)
 
   // 메모 편집 상태
   const [editingMemo, setEditingMemo] = useState<string | null>(null)
@@ -87,6 +92,9 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
 
   const localStatusCache = useRef<Map<string, LocalTaskStatus>>(new Map())
   const [cacheVersion, setCacheVersion] = useState(0)
+
+  // 이미 추가한 미완료 업무 content 추적 (useEffect 재실행 시 필터용)
+  const dismissedIncompleteRef = useRef<Set<string>>(new Set())
 
   // 로컬 캐시 업데이트 헬퍼 함수
   const updateLocalCache = (cacheKey: string, status: LocalTaskStatus) => {
@@ -106,6 +114,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     // 날짜가 바뀌면 상태 초기화
     if (lastLoadedRef.current?.date !== targetDate) {
       localStatusCache.current.clear()
+      dismissedIncompleteRef.current.clear()
       setHasUnsavedChanges(false)
       setEditingMemo(null)
       setIncompleteTasks([])
@@ -133,7 +142,12 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   useEffect(() => {
     if (!loading) {
       getIncompleteTasks(targetDate).then(tasks => {
-        setIncompleteTasks(tasks)
+        // 이미 추가(dismiss)한 항목은 제외
+        const dismissed = dismissedIncompleteRef.current
+        const filtered = dismissed.size > 0
+          ? tasks.filter(t => !dismissed.has(t.content))
+          : tasks
+        setIncompleteTasks(filtered)
       })
     }
   }, [loading, targetDate, getIncompleteTasks])
@@ -208,7 +222,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     })
 
     if (!task.workLogId) {
-      await handleManualSave()
+      await saveWithText(text)
       return
     }
 
@@ -240,7 +254,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     })
 
     if (!task.workLogId) {
-      await handleManualSave()
+      await saveWithText(text)
       return
     }
 
@@ -445,10 +459,10 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     }
   }
 
-  const handleManualSave = async () => {
+  const saveWithText = useCallback(async (textToSave: string) => {
     try {
       setSaving(true)
-      const tasks = parseAllTasks(text)
+      const tasks = parseAllTasks(textToSave)
 
       const completedCount = tasks.filter(t => {
         const cacheKey = `${t.project_name}:${t.content}`
@@ -459,7 +473,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       }).length
       const completionRate = tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0
 
-      await saveLog(text, tasks.length, completionRate)
+      await saveLog(textToSave, tasks.length, completionRate)
 
       const projectMappings: Record<string, string> = {}
       const uniqueProjectNames = [...new Set(tasks.map(t => t.project_name))]
@@ -502,7 +516,17 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     } finally {
       setSaving(false)
     }
+  }, [workLogs, saveLog, findProjectByName, createProject, syncFromParsedTasks, onSave])
+
+  const handleManualSave = async () => {
+    await saveWithText(text)
   }
+
+  const handleQuickAdd = useCallback(async (line: string) => {
+    const newText = text ? `${text}\n${line}` : line
+    setText(newText)
+    await saveWithText(newText)
+  }, [text, saveWithText])
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value)
@@ -518,7 +542,6 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     const newLine = formatProjectLine(task.project, task.content)
     const newText = text ? `${text}\n${newLine}` : newLine
     setText(newText)
-    setHasUnsavedChanges(true)
 
     // 세부 업무/메모/마감일을 localStatusCache에 저장 (저장 시 복사됨)
     const cacheKey = `${task.project}:${task.content}`
@@ -531,14 +554,22 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     })
     setCacheVersion(v => v + 1)
 
+    dismissedIncompleteRef.current.add(task.content)
     setIncompleteTasks(prev => prev.filter(t => t.content !== task.content))
+    invalidateCache(targetDate)
+
+    // 모바일: 즉시 저장 / 데스크톱: 수동 저장 대기
+    if (isMobile) {
+      saveWithText(newText)
+    } else {
+      setHasUnsavedChanges(true)
+    }
   }
 
   const handleAddAllIncompleteTasks = () => {
     const newLines = incompleteTasks.map(t => formatProjectLine(t.project, t.content)).join('\n')
     const newText = text ? `${text}\n${newLines}` : newLines
     setText(newText)
-    setHasUnsavedChanges(true)
 
     // 모든 미완료 업무의 세부 업무/메모/마감일을 localStatusCache에 저장
     incompleteTasks.forEach(task => {
@@ -553,7 +584,16 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     })
     setCacheVersion(v => v + 1)
 
+    incompleteTasks.forEach(t => dismissedIncompleteRef.current.add(t.content))
     setIncompleteTasks([])
+    invalidateCache(targetDate)
+
+    // 모바일: 즉시 저장 / 데스크톱: 수동 저장 대기
+    if (isMobile) {
+      saveWithText(newText)
+    } else {
+      setHasUnsavedChanges(true)
+    }
   }
 
   if (!initialLoadDone && (loading || carryingOver)) {
@@ -569,6 +609,564 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const maxProgress = tasksWithDBStatus.length * 100
   const overallProgressRate = maxProgress > 0 ? Math.round((totalProgress / maxProgress) * 100) : 0
 
+  // 업무 카드 목록 (모바일/데스크톱 공용)
+  const renderTaskCards = () => (
+    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+      {tasksWithDBStatus.length === 0 && (
+        <div className="h-64 flex flex-col items-center justify-center text-center">
+          <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+            <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+          </div>
+          <p className="text-gray-500 text-sm">
+            {isMobile ? '하단 입력 바에서 업무를 추가하세요' : '오늘의 업무를 입력해보세요'}
+          </p>
+          <p className="text-gray-400 text-xs mt-1">#프로젝트명/ 업무내용</p>
+        </div>
+      )}
+
+      {tasksWithDBStatus.map((task, idx) => (
+        <div
+          key={`${task.project_name}:${task.content}:${idx}`}
+          className={`bg-white rounded-xl border transition-all cursor-pointer overflow-hidden ${
+            selectedTask === task.lineIndex
+              ? 'border-primary-400 shadow-md ring-1 ring-primary-100'
+              : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+          }`}
+          onClick={() => setSelectedTask(selectedTask === task.lineIndex ? null : task.lineIndex)}
+        >
+          <div className="p-3.5">
+            <div className="flex items-start gap-3">
+              {/* 체크박스 */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleCheckboxToggle(task)
+                }}
+                className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition ${
+                  task.isCompleted
+                    ? 'bg-emerald-500 border-emerald-500'
+                    : 'border-gray-300 hover:border-primary-400'
+                }`}
+              >
+                {task.isCompleted && (
+                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+
+              {/* 내용 */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs font-medium text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded">
+                    #{task.project_name}
+                  </span>
+                  {!task.isCompleted && task.progress > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {task.progress}%
+                    </span>
+                  )}
+                  {task.subtasks && task.subtasks.length > 0 && (
+                    <span className="text-xs text-gray-400">
+                      {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length}
+                    </span>
+                  )}
+                  {task.dueDate && (() => {
+                    const display = getDueDateDisplay(task.dueDate, task.isCompleted)
+                    if (!display) return null
+                    return (
+                      <span className={`text-xs flex items-center gap-0.5 ${display.className}`}>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        {display.label}
+                      </span>
+                    )
+                  })()}
+                  {task.detail && (
+                    <span className="text-xs text-gray-400 flex items-center gap-0.5">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                      </svg>
+                      메모
+                    </span>
+                  )}
+                </div>
+                <p className={`text-sm leading-relaxed ${
+                  task.isCompleted ? 'text-gray-400 line-through' : 'text-gray-700'
+                }`}>
+                  {task.content}
+                </p>
+              </div>
+
+              {/* 펼침 아이콘 */}
+              <svg
+                className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${
+                  selectedTask === task.lineIndex ? 'rotate-180' : ''
+                }`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </div>
+
+          {/* 상세 영역 */}
+          {selectedTask === task.lineIndex && (
+            <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-4">
+              {/* 진척도 바 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-medium text-gray-700">
+                    진척도
+                  </label>
+                  {task.subtasks && task.subtasks.length > 0 && (
+                    <span className="text-xs text-gray-400">
+                      세부 업무 기반 자동 계산
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 relative h-2 bg-gray-200 rounded-lg">
+                    <div
+                      className={`absolute h-full rounded-lg transition-all ${
+                        task.progress >= 100 ? 'bg-emerald-500' : 'bg-primary-500'
+                      }`}
+                      style={{ width: `${task.progress}%` }}
+                    />
+                    {/* 세부 업무 없을 때만 수동 조정 가능 */}
+                    {!task.isCompleted && (!task.subtasks || task.subtasks.length === 0) && (
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="10"
+                        value={task.progress}
+                        onChange={(e) => handleProgressChange(task, parseInt(e.target.value))}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    )}
+                  </div>
+                  <span className={`text-sm font-semibold w-12 text-right ${
+                    task.progress >= 100 ? 'text-emerald-600' : 'text-gray-700'
+                  }`}>
+                    {task.progress}%
+                  </span>
+                </div>
+                {task.subtasks && task.subtasks.length > 0 && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    세부 업무 {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length} 완료
+                    {task.isCompleted ? ' + 메인 완료' : ''}
+                  </p>
+                )}
+              </div>
+
+              {/* 마감일 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-medium text-gray-700">
+                    마감일
+                  </label>
+                  {task.dueDate && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDueDateChange(task, null)
+                      }}
+                      className="text-xs text-gray-400 hover:text-red-500"
+                    >
+                      해제
+                    </button>
+                  )}
+                </div>
+                {task.workLogId ? (
+                  <input
+                    type="date"
+                    value={task.dueDate || ''}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      handleDueDateChange(task, e.target.value || null)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white transition-colors"
+                  />
+                ) : (
+                  <p className="text-xs text-gray-400 py-2">
+                    먼저 저장 후 마감일을 설정할 수 있습니다
+                  </p>
+                )}
+              </div>
+
+              {/* 세부 업무 */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2">
+                  세부 업무
+                </label>
+                <div className="space-y-1.5">
+                  {task.subtasks && task.subtasks.map((subtask) => (
+                    <div
+                      key={subtask.id}
+                      className="flex items-center gap-2 p-2 bg-white rounded-lg group"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={() => handleToggleSubtask(task, subtask.id)}
+                        className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center transition ${
+                          subtask.is_completed
+                            ? 'bg-emerald-500 border-emerald-500'
+                            : 'border-gray-300 hover:border-primary-400'
+                        }`}
+                      >
+                        {subtask.is_completed && (
+                          <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                      <span className={`flex-1 text-sm ${
+                        subtask.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'
+                      }`}>
+                        {subtask.content}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteSubtask(task, subtask.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* 세부 업무 추가 */}
+                  {addingSubtaskFor === task.workLogId ? (
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={newSubtaskText}
+                        onChange={(e) => setNewSubtaskText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newSubtaskText.trim()) {
+                            handleAddSubtask(task)
+                          } else if (e.key === 'Escape') {
+                            setAddingSubtaskFor(null)
+                            setNewSubtaskText('')
+                          }
+                        }}
+                        placeholder="세부 업무 내용"
+                        className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => handleAddSubtask(task)}
+                        disabled={!newSubtaskText.trim()}
+                        className="px-2.5 py-1.5 text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-lg disabled:opacity-50"
+                      >
+                        추가
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAddingSubtaskFor(null)
+                          setNewSubtaskText('')
+                        }}
+                        className="px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
+                      >
+                        취소
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setAddingSubtaskFor(task.workLogId || null)
+                      }}
+                      className="w-full py-2 text-sm text-gray-400 hover:text-gray-500 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      + 세부 업무 추가
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 메모 영역 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-medium text-gray-700">
+                    메모
+                  </label>
+                  {task.detail && editingMemo !== task.workLogId && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteMemo(task)
+                      }}
+                      className="text-xs text-gray-400 hover:text-red-500"
+                    >
+                      삭제
+                    </button>
+                  )}
+                </div>
+
+                {editingMemo === task.workLogId ? (
+                  <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                    <textarea
+                      value={memoText}
+                      onChange={(e) => setMemoText(e.target.value)}
+                      placeholder="메모를 입력하세요..."
+                      className="w-full p-3 text-sm border border-gray-200 rounded-lg outline-none ring-0 focus:border-primary-400 resize-none bg-white transition-colors"
+                      rows={2}
+                      autoFocus
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={handleCancelMemo}
+                        className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
+                      >
+                        취소
+                      </button>
+                      <button
+                        onClick={() => handleSaveMemo(task)}
+                        disabled={savingMemo}
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-lg disabled:opacity-50"
+                      >
+                        {savingMemo ? '저장 중...' : '저장'}
+                      </button>
+                    </div>
+                  </div>
+                ) : task.detail ? (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleStartEditMemo(task)
+                    }}
+                    className="p-3 bg-white rounded-lg text-sm text-gray-600 cursor-text hover:bg-gray-100 transition-colors whitespace-pre-wrap"
+                  >
+                    {task.detail}
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleStartEditMemo(task)
+                    }}
+                    className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-500 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    + 메모 추가
+                  </button>
+                )}
+              </div>
+
+              {/* 삭제 */}
+              <div className="flex justify-end pt-2 border-t border-gray-100">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteTask(task)
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  업무 삭제
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+
+  // 사고 체크리스트 (모바일/데스크톱 공용)
+  const renderChecklist = () => (
+    <div className="mb-4 bg-gradient-to-br from-slate-50 to-gray-50 border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setShowChecklist(!showChecklist)}
+        className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-100/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm">💭</span>
+          <span className="text-gray-600 text-xs font-medium">
+            사고 체크리스트
+          </span>
+        </div>
+        <svg
+          className={`w-4 h-4 text-gray-400 transition-transform ${showChecklist ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {showChecklist && (
+        <div className="px-4 pb-4">
+          <div className="flex flex-wrap gap-2">
+            {THINKING_CHECKLIST.map((item) => (
+              <div
+                key={item.id}
+                className="group relative flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all cursor-default"
+              >
+                <span className="text-sm">{item.icon}</span>
+                <span className="text-xs text-gray-600 font-medium">{item.question}</span>
+
+                {/* 툴팁 */}
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                  {item.full}
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-3">
+            {isMobile ? '각 항목을 탭하여 질문을 확인하세요' : '각 항목에 마우스를 올려 자세한 질문을 확인하세요'}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+
+  // ─── 모바일 레이아웃 ───
+  if (isMobile) {
+    return (
+      <>
+        {/* 오늘 업무 완수율 - 상단 */}
+        {tasksWithDBStatus.length > 0 && (
+          <div className="mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    overallProgressRate === 100 ? 'bg-emerald-500' : 'bg-primary-500'
+                  }`}
+                  style={{ width: `${overallProgressRate}%` }}
+                />
+              </div>
+              <span className={`text-sm font-bold min-w-[3rem] text-right ${
+                overallProgressRate === 100 ? 'text-emerald-600' : 'text-primary-600'
+              }`}>
+                {overallProgressRate}%
+              </span>
+            </div>
+            {overallProgressRate === 100 ? (
+              <p className="text-xs text-emerald-600 mt-1.5 text-center font-medium">
+                오늘 업무를 모두 완료했습니다!
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1.5">
+                {completedCount}/{tasksWithDBStatus.length} 완료
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* 미완료 업무 아코디언 */}
+        {incompleteTasks.length > 0 && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setShowIncomplete(!showIncomplete)}
+              className="w-full px-4 py-3 flex items-center justify-between hover:bg-amber-100/50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <svg
+                  className={`w-4 h-4 text-amber-600 transition-transform ${showIncomplete ? 'rotate-90' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span className="text-amber-700 text-sm font-semibold">
+                  미완료 업무 {incompleteTasks.length}개
+                </span>
+              </div>
+              {showIncomplete && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleAddAllIncompleteTasks()
+                  }}
+                  className="text-xs text-amber-700 hover:text-amber-800 font-medium hover:underline"
+                >
+                  전체 추가
+                </span>
+              )}
+            </button>
+
+            {showIncomplete && (
+              <div className="px-4 pb-3 space-y-1.5 max-h-40 overflow-y-auto">
+                {incompleteTasks.map((task, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between text-sm p-2 bg-white rounded-lg border border-amber-100"
+                  >
+                    <span className="text-gray-700 truncate flex-1">
+                      <span className="text-amber-600 font-medium">#{task.project}</span>{' '}
+                      {task.content}
+                    </span>
+                    <button
+                      onClick={() => handleAddIncompleteTask(task)}
+                      className="ml-2 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 rounded font-medium flex-shrink-0"
+                    >
+                      추가
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 사고 체크리스트 */}
+        {renderChecklist()}
+
+        {/* 업무 목록 헤더 */}
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900">
+            업무 목록
+          </h3>
+        </div>
+
+        {/* 업무 카드 목록 */}
+        {renderTaskCards()}
+
+        {/* 하단 고정 입력 바 */}
+        <MobileQuickInput
+          onSubmit={handleQuickAdd}
+          onExpand={() => setFullEditorOpen(true)}
+          disabled={saving}
+          visible={!fullEditorOpen}
+        />
+
+        {/* 풀스크린 에디터 오버레이 */}
+        <MobileFullEditor
+          isOpen={fullEditorOpen}
+          onClose={() => setFullEditorOpen(false)}
+          text={text}
+          onTextChange={(newText) => {
+            setText(newText)
+            setHasUnsavedChanges(true)
+          }}
+          onSave={() => {
+            saveWithText(text)
+            setFullEditorOpen(false)
+          }}
+          saving={saving}
+          hasUnsavedChanges={hasUnsavedChanges}
+          incompleteTasks={incompleteTasks}
+          onAddIncompleteTask={handleAddIncompleteTask}
+          onAddAllIncompleteTasks={handleAddAllIncompleteTasks}
+        />
+      </>
+    )
+  }
+
+  // ─── 데스크톱 레이아웃 (기존) ───
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[500px]">
       {/* 왼쪽: 텍스트 입력 */}
@@ -669,53 +1267,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
 
       {/* 오른쪽: 업무 목록 */}
       <div className="flex flex-col">
-        {/* 사고 체크리스트 - 항상 표시 */}
-        <div className="mb-4 bg-gradient-to-br from-slate-50 to-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-            <button
-              onClick={() => setShowChecklist(!showChecklist)}
-              className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-100/50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm">💭</span>
-                <span className="text-gray-600 text-xs font-medium">
-                  사고 체크리스트
-                </span>
-              </div>
-              <svg
-                className={`w-4 h-4 text-gray-400 transition-transform ${showChecklist ? 'rotate-180' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-
-            {showChecklist && (
-              <div className="px-4 pb-4">
-                <div className="flex flex-wrap gap-2">
-                  {THINKING_CHECKLIST.map((item) => (
-                    <div
-                      key={item.id}
-                      className="group relative flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all cursor-default"
-                    >
-                      <span className="text-sm">{item.icon}</span>
-                      <span className="text-xs text-gray-600 font-medium">{item.question}</span>
-
-                      {/* 툴팁 */}
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
-                        {item.full}
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-gray-400 mt-3">
-                  각 항목에 마우스를 올려 자세한 질문을 확인하세요
-                </p>
-              </div>
-            )}
-        </div>
+        {/* 사고 체크리스트 */}
+        {renderChecklist()}
 
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-900">
@@ -728,372 +1281,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-          {tasksWithDBStatus.length === 0 && (
-            <div className="h-64 flex flex-col items-center justify-center text-center">
-              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-                <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
-              <p className="text-gray-500 text-sm">오늘의 업무를 입력해보세요</p>
-              <p className="text-gray-400 text-xs mt-1">#프로젝트명 업무내용</p>
-            </div>
-          )}
-
-          {tasksWithDBStatus.map((task) => (
-            <div
-              key={task.lineIndex}
-              className={`bg-white rounded-xl border transition-all cursor-pointer overflow-hidden ${
-                selectedTask === task.lineIndex
-                  ? 'border-primary-400 shadow-md ring-1 ring-primary-100'
-                  : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-              }`}
-              onClick={() => setSelectedTask(selectedTask === task.lineIndex ? null : task.lineIndex)}
-            >
-              <div className="p-3.5">
-                <div className="flex items-start gap-3">
-                  {/* 체크박스 */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleCheckboxToggle(task)
-                    }}
-                    className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition ${
-                      task.isCompleted
-                        ? 'bg-emerald-500 border-emerald-500'
-                        : 'border-gray-300 hover:border-primary-400'
-                    }`}
-                  >
-                    {task.isCompleted && (
-                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </button>
-
-                  {/* 내용 */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded">
-                        #{task.project_name}
-                      </span>
-                      {!task.isCompleted && task.progress > 0 && (
-                        <span className="text-xs text-gray-500">
-                          {task.progress}%
-                        </span>
-                      )}
-                      {task.subtasks && task.subtasks.length > 0 && (
-                        <span className="text-xs text-gray-400">
-                          {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length}
-                        </span>
-                      )}
-                      {task.dueDate && (() => {
-                        const display = getDueDateDisplay(task.dueDate, task.isCompleted)
-                        if (!display) return null
-                        return (
-                          <span className={`text-xs flex items-center gap-0.5 ${display.className}`}>
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            {display.label}
-                          </span>
-                        )
-                      })()}
-                      {task.detail && (
-                        <span className="text-xs text-gray-400 flex items-center gap-0.5">
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                          </svg>
-                          메모
-                        </span>
-                      )}
-                    </div>
-                    <p className={`text-sm leading-relaxed ${
-                      task.isCompleted ? 'text-gray-400 line-through' : 'text-gray-700'
-                    }`}>
-                      {task.content}
-                    </p>
-                  </div>
-
-                  {/* 펼침 아이콘 */}
-                  <svg
-                    className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${
-                      selectedTask === task.lineIndex ? 'rotate-180' : ''
-                    }`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* 상세 영역 */}
-              {selectedTask === task.lineIndex && (
-                <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-4">
-                  {/* 진척도 바 */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-xs font-medium text-gray-700">
-                        진척도
-                      </label>
-                      {task.subtasks && task.subtasks.length > 0 && (
-                        <span className="text-xs text-gray-400">
-                          세부 업무 기반 자동 계산
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 relative h-2 bg-gray-200 rounded-lg">
-                        <div
-                          className={`absolute h-full rounded-lg transition-all ${
-                            task.progress >= 100 ? 'bg-emerald-500' : 'bg-primary-500'
-                          }`}
-                          style={{ width: `${task.progress}%` }}
-                        />
-                        {/* 세부 업무 없을 때만 수동 조정 가능 */}
-                        {!task.isCompleted && (!task.subtasks || task.subtasks.length === 0) && (
-                          <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="10"
-                            value={task.progress}
-                            onChange={(e) => handleProgressChange(task, parseInt(e.target.value))}
-                            onClick={(e) => e.stopPropagation()}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          />
-                        )}
-                      </div>
-                      <span className={`text-sm font-semibold w-12 text-right ${
-                        task.progress >= 100 ? 'text-emerald-600' : 'text-gray-700'
-                      }`}>
-                        {task.progress}%
-                      </span>
-                    </div>
-                    {task.subtasks && task.subtasks.length > 0 && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        세부 업무 {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length} 완료
-                        {task.isCompleted ? ' + 메인 완료' : ''}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 마감일 */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-xs font-medium text-gray-700">
-                        마감일
-                      </label>
-                      {task.dueDate && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDueDateChange(task, null)
-                          }}
-                          className="text-xs text-gray-400 hover:text-red-500"
-                        >
-                          해제
-                        </button>
-                      )}
-                    </div>
-                    {task.workLogId ? (
-                      <input
-                        type="date"
-                        value={task.dueDate || ''}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          handleDueDateChange(task, e.target.value || null)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white transition-colors"
-                      />
-                    ) : (
-                      <p className="text-xs text-gray-400 py-2">
-                        먼저 저장 후 마감일을 설정할 수 있습니다
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 세부 업무 */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-2">
-                      세부 업무
-                    </label>
-                    <div className="space-y-1.5">
-                      {task.subtasks && task.subtasks.map((subtask) => (
-                        <div
-                          key={subtask.id}
-                          className="flex items-center gap-2 p-2 bg-white rounded-lg group"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => handleToggleSubtask(task, subtask.id)}
-                            className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center transition ${
-                              subtask.is_completed
-                                ? 'bg-emerald-500 border-emerald-500'
-                                : 'border-gray-300 hover:border-primary-400'
-                            }`}
-                          >
-                            {subtask.is_completed && (
-                              <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </button>
-                          <span className={`flex-1 text-sm ${
-                            subtask.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'
-                          }`}>
-                            {subtask.content}
-                          </span>
-                          <button
-                            onClick={() => handleDeleteSubtask(task, subtask.id)}
-                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
-
-                      {/* 세부 업무 추가 */}
-                      {addingSubtaskFor === task.workLogId ? (
-                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="text"
-                            value={newSubtaskText}
-                            onChange={(e) => setNewSubtaskText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && newSubtaskText.trim()) {
-                                handleAddSubtask(task)
-                              } else if (e.key === 'Escape') {
-                                setAddingSubtaskFor(null)
-                                setNewSubtaskText('')
-                              }
-                            }}
-                            placeholder="세부 업무 내용"
-                            className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white"
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => handleAddSubtask(task)}
-                            disabled={!newSubtaskText.trim()}
-                            className="px-2.5 py-1.5 text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-lg disabled:opacity-50"
-                          >
-                            추가
-                          </button>
-                          <button
-                            onClick={() => {
-                              setAddingSubtaskFor(null)
-                              setNewSubtaskText('')
-                            }}
-                            className="px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
-                          >
-                            취소
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setAddingSubtaskFor(task.workLogId || null)
-                          }}
-                          className="w-full py-2 text-sm text-gray-400 hover:text-gray-500 bg-white rounded-lg hover:bg-gray-100 transition-colors"
-                        >
-                          + 세부 업무 추가
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 메모 영역 */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-xs font-medium text-gray-700">
-                        메모
-                      </label>
-                      {task.detail && editingMemo !== task.workLogId && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteMemo(task)
-                          }}
-                          className="text-xs text-gray-400 hover:text-red-500"
-                        >
-                          삭제
-                        </button>
-                      )}
-                    </div>
-
-                    {editingMemo === task.workLogId ? (
-                      <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                        <textarea
-                          value={memoText}
-                          onChange={(e) => setMemoText(e.target.value)}
-                          placeholder="메모를 입력하세요..."
-                          className="w-full p-3 text-sm border border-gray-200 rounded-lg outline-none ring-0 focus:border-primary-400 resize-none bg-white transition-colors"
-                          rows={2}
-                          autoFocus
-                        />
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={handleCancelMemo}
-                            className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
-                          >
-                            취소
-                          </button>
-                          <button
-                            onClick={() => handleSaveMemo(task)}
-                            disabled={savingMemo}
-                            className="px-3 py-1.5 text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-lg disabled:opacity-50"
-                          >
-                            {savingMemo ? '저장 중...' : '저장'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : task.detail ? (
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleStartEditMemo(task)
-                        }}
-                        className="p-3 bg-white rounded-lg text-sm text-gray-600 cursor-text hover:bg-gray-100 transition-colors whitespace-pre-wrap"
-                      >
-                        {task.detail}
-                      </div>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleStartEditMemo(task)
-                        }}
-                        className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-500 bg-white rounded-lg hover:bg-gray-100 transition-colors"
-                      >
-                        + 메모 추가
-                      </button>
-                    )}
-                  </div>
-
-                  {/* 삭제 */}
-                  <div className="flex justify-end pt-2 border-t border-gray-100">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteTask(task)
-                      }}
-                      className="px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      업무 삭제
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        {renderTaskCards()}
 
         {/* 오늘 업무 진척도 */}
         {tasksWithDBStatus.length > 0 && (
