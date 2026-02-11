@@ -10,6 +10,8 @@ interface ResultStepProps {
   isGenerating: boolean
   onBack: () => void
   onRegenerate: () => void
+  onSave?: (content: string) => Promise<void>
+  saved?: boolean
 }
 
 export default function ResultStep({
@@ -18,14 +20,24 @@ export default function ResultStep({
   isGenerating,
   onBack,
   onRegenerate,
+  onSave,
+  saved = false,
 }: ResultStepProps) {
   const [content, setContent] = useState(generatedContent)
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  const [isSaved, setIsSaved] = useState(saved)
 
   useEffect(() => {
     setContent(generatedContent)
   }, [generatedContent])
+
+  // 생성 완료 시 자동 저장
+  useEffect(() => {
+    if (generatedContent && !isGenerating && onSave && !isSaved) {
+      onSave(generatedContent).then(() => setIsSaved(true)).catch(console.error)
+    }
+  }, [generatedContent, isGenerating]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = async () => {
     try {
@@ -161,6 +173,13 @@ export default function ResultStep({
           {copied ? '복사 완료!' : '경력기술서 복사하기'}
         </Button>
       </div>
+
+      {/* 저장 상태 표시 */}
+      {isSaved && (
+        <p className="text-xs text-center text-emerald-500">
+          경력기술서가 자동 저장되었습니다
+        </p>
+      )}
 
       {/* AI 안내 */}
       <p className="text-xs text-center text-gray-500">

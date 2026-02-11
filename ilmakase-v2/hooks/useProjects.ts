@@ -85,9 +85,7 @@ export function useProjects() {
       .single()
 
     if (error) {
-      console.error('createProject 에러:', JSON.stringify(error, null, 2))
-      console.error('에러 코드:', error.code)
-      console.error('에러 메시지:', error.message)
+      console.error('createProject 에러:', error.code, error.message)
       throw error
     }
 

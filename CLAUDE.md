@@ -82,7 +82,8 @@ ilmakase.ver2/
 │   ├── app/
 │   │   ├── (main)/
 │   │   │   ├── worklog/page.tsx    # 데일리 로그
-│   │   │   ├── projects/page.tsx   # 프로젝트 아카이브
+│   │   │   ├── projects/page.tsx   # 프로젝트 (마스터-디테일)
+│   │   │   ├── career-doc/page.tsx # 경력기술서 (랜딩 + 위저드)
 │   │   │   └── review/page.tsx     # 월간 회고
 │   │   ├── (auth)/
 │   │   │   ├── login/page.tsx
@@ -106,23 +107,38 @@ ilmakase.ver2/
 │   │   │   ├── MentorFeedback.tsx     # AI 멘토 피드백
 │   │   │   └── KPTReflection.tsx      # KPT 회고
 │   │   ├── Project/
-│   │   │   └── ProjectDetailModal.tsx  # 프로젝트 상세 편집 모달
+│   │   │   ├── ProjectDetailModal.tsx  # 프로젝트 상세 편집 모달
+│   │   │   ├── ProjectDetailPanel.tsx  # 프로젝트 업무 상세 패널 (날짜별 그룹)
+│   │   │   └── ProjectTaskList.tsx     # 프로젝트 업무 아코디언 (미사용)
+│   │   ├── CareerDoc/
+│   │   │   ├── CompanyStep.tsx         # 회사 선택 스텝
+│   │   │   ├── ProjectSelectStep.tsx   # 프로젝트 선택 스텝
+│   │   │   ├── PriorityStep.tsx        # 우선순위 스텝
+│   │   │   ├── ResultStep.tsx          # 결과 스텝 (onSave 자동저장)
+│   │   │   ├── SavedDocCard.tsx        # 저장된 문서 카드
+│   │   │   └── DocViewModal.tsx        # 문서 보기/편집 모달
 │   │   └── UI/
 │   │       ├── Button.tsx
 │   │       ├── Card.tsx
 │   │       ├── Input.tsx
 │   │       ├── ProgressBar.tsx
-│   │       └── MobileBottomNav.tsx  # 모바일 하단 탭 (3페이지 공용)
+│   │       ├── DesktopTabs.tsx     # 데스크톱 탭 (4탭 공용)
+│   │       └── MobileBottomNav.tsx # 모바일 하단 탭 (4탭 공용)
 │   ├── hooks/
 │   │   ├── useAuth.ts
 │   │   ├── useDailyLog.ts
-│   │   ├── useWorkLogs.ts          # work_logs CRUD
+│   │   ├── useWorkLogs.ts          # work_logs CRUD (날짜별)
+│   │   ├── useProjectWorkLogs.ts   # 프로젝트별 work_logs 조회 + CRUD
 │   │   ├── useCarryOver.ts         # 미완료 업무 가져오기
 │   │   ├── useProjects.ts
+│   │   ├── useCompanies.ts         # 회사 CRUD
+│   │   ├── useCareerDocs.ts        # 경력기술서 CRUD
 │   │   └── useIsMobile.ts          # 모바일 감지 (1024px 기준)
 │   ├── lib/
 │   │   ├── cache.ts                # 메모리 캐시 (탭 전환 최적화)
 │   │   ├── parser.ts               # 업무 텍스트 파싱
+│   │   ├── mappers.ts              # snake_case → camelCase 매퍼
+│   │   ├── navigation.ts           # 공유 네비게이션 설정 (NAV_ITEMS)
 │   │   ├── supabase/
 │   │   │   ├── client.ts
 │   │   │   └── server.ts
@@ -181,6 +197,15 @@ ilmakase.ver2/
 - 월별 캘린더
 - 날짜별 업무 완료율 표시 (색상으로)
 
+### ProjectDetailPanel (프로젝트 업무 상세)
+- 마스터-디테일 레이아웃의 오른쪽 패널
+- 업무를 날짜별로 그룹핑하여 표시 (최신순)
+- 날짜 레이블: "2/11 (화) · 오늘" 형식
+- 업무 카드: 체크박스, 진척도, 마감일, 세부업무, 메모, 삭제 CRUD
+- 업무 카드 스타일: rounded-xl border 카드, 펼침 시 border-primary-200 하이라이트
+- 세부업무: 별도 bg-gray-50 카드 안에 표시, 초록(emerald) 체크박스로 구분
+- 모바일: onBack prop으로 뒤로가기 지원
+
 ### ProjectDetailModal
 - 프로젝트 상세 정보 편집 모달
 - 기본 정보: 프로젝트명, 한 줄 요약, 설명
@@ -207,6 +232,15 @@ ilmakase.ver2/
 - 프로젝트 목록
 - 기본: `name`, `status`, `auto_matched`, `start_date`, `end_date`, `keywords[]`
 - 경력기술서용: `role`, `team_size`, `tech_stack[]`, `outcomes` (JSONB), `contribution`, `summary`
+
+### career_documents
+- 경력기술서 저장
+- `company_id`, `title`, `content`, `project_ids[]`, `priority_config` (JSONB)
+- `period_start`, `period_end`, `role`
+
+### companies
+- 회사 정보
+- `name`, `position`, `start_date`, `end_date`, `is_current`
 
 ---
 
@@ -324,7 +358,7 @@ if (!initialLoadDone && loading) {
 
 ---
 
-## 현재 진행 상황 (2026-02-10)
+## 현재 진행 상황 (2026-02-11)
 
 ### 완료
 - [x] 프로젝트 구조 세팅 (ilmakase-v2)
@@ -381,7 +415,7 @@ if (!initialLoadDone && loading) {
   - DailyLogEditor 조건부 렌더링 (isMobile 분기)
   - saveWithText() 리팩토링 — 텍스트를 인자로 받아 빠른 입력에서도 즉시 저장
 - [x] **모바일 네비게이션 개편** (2026-02-10)
-  - 하단 탭 바 (MobileBottomNav) — 3페이지 공용, usePathname 활성 상태
+  - 하단 탭 바 (MobileBottomNav) — 4페이지 공용, usePathname 활성 상태
   - 캘린더 왼쪽 사이드 패널 (MobileCalendarPanel) — 슬라이드인 + WeeklySummary 포함
   - 모바일 헤더 간소화: [캘린더 아이콘] < 날짜 > (로고 제거)
   - 상단 탭 → 데스크톱 전용 (hidden lg:flex)
@@ -393,6 +427,22 @@ if (!initialLoadDone && loading) {
   - 추가 시 invalidateCache 호출로 캐시 무효화
 - [x] **체크박스 요동 버그 수정** (2026-02-10)
   - key={task.lineIndex} → key={project:content:idx} 변경 (빈 줄 삽입 시 안정)
+- [x] **프로젝트 탭 / 경력기술서 탭 분리** (2026-02-11)
+  - 네비게이션 3탭 → 4탭 (데일리 로그 | 프로젝트 | 경력기술서 | 회고)
+  - 공유 네비게이션: `lib/navigation.ts` + `DesktopTabs.tsx` + `MobileBottomNav.tsx` 수정
+  - 프로젝트 탭: 마스터-디테일 레이아웃 (좌: 프로젝트 목록 w-1/3, 우: 날짜별 업무 상세)
+  - `useProjectWorkLogs.ts` — 전체 work_logs를 프로젝트별 그룹핑 + CRUD
+  - `ProjectDetailPanel.tsx` — 날짜별 업무 카드 (체크박스/진척도/마감일/세부업무/메모/삭제)
+  - 업무/세부업무 시각적 계층 구분: 카드 border, 세부업무 별도 컨테이너, 체크박스 색상 분리
+  - 모바일: 프로젝트 목록 → 탭 → 풀스크린 디테일 (뒤로가기)
+  - 데스크톱: 첫 프로젝트 자동 선택
+- [x] **경력기술서 탭 신설** (2026-02-11)
+  - 랜딩 모드: 저장된 경력기술서 목록 (SavedDocCard) + "새 경력기술서 생성하기" 버튼
+  - 위저드 모드: 기존 4스텝 플로우 (Company → Projects → Priority → Result)
+  - ResultStep에 onSave 추가 → 생성 완료 시 career_documents 테이블에 자동 저장
+  - DocViewModal: 저장된 문서 보기/편집/복사/삭제
+  - `useCareerDocs.ts` — career_documents CRUD
+  - DB 마이그레이션: `database/migrate-career-docs-company.sql` (company_id, content, project_ids, priority_config)
 
 ### 진행 예정
 - [ ] (추후) AI 코칭 고도화 후 재도입 검토
@@ -430,8 +480,9 @@ if (!initialLoadDone && loading) {
 
 ### DB 마이그레이션 (Supabase SQL Editor에서 실행)
 ```bash
-database/migrate-companies.sql    # 회사 테이블
-database/migrate-subtasks.sql     # 세부 업무 컬럼 (work_logs.subtasks)
+database/migrate-companies.sql              # 회사 테이블
+database/migrate-subtasks.sql               # 세부 업무 컬럼 (work_logs.subtasks)
+database/migrate-career-docs-company.sql    # 경력기술서 회사 연동 (company_id, content, project_ids, priority_config)
 # work_logs.due_date: ALTER TABLE work_logs ADD COLUMN due_date DATE DEFAULT NULL;
 ```
 

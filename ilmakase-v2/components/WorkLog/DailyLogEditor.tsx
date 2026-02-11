@@ -1,13 +1,16 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { parseAllTasks } from '@/lib/parser'
+import { parseAllTasks, formatProjectLine } from '@/lib/parser'
 import { ParsedTask, Subtask } from '@/types'
 import { useDailyLog } from '@/hooks/useDailyLog'
 import { useWorkLogs, calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
 import { useCarryOver, IncompleteTaskData } from '@/hooks/useCarryOver'
 import { useProjects } from '@/hooks/useProjects'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useAuth } from '@/hooks/useAuth'
+import { createClient } from '@/lib/supabase/client'
+import { dataCache, cacheKeys } from '@/lib/cache'
 import { Button } from '@/components/UI'
 import MobileQuickInput from './MobileQuickInput'
 import MobileFullEditor from './MobileFullEditor'
@@ -64,6 +67,7 @@ const THINKING_CHECKLIST = [
 ]
 
 export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorProps) {
+  const { user } = useAuth()
   const { log, loading, saveLog } = useDailyLog(targetDate)
   const { workLogs, syncFromParsedTasks, updateWorkLog, deleteWorkLog } = useWorkLogs(targetDate)
   const { getIncompleteTasks, invalidateCache, carryingOver } = useCarryOver()
@@ -459,6 +463,54 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     }
   }
 
+  const handleMoveTask = async (task: TaskWithDB, newDate: string) => {
+    if (!task.workLogId || !user) return
+    if (newDate === targetDate) return
+
+    try {
+      // 1. work_log의 work_date 변경
+      await updateWorkLog(task.workLogId, { workDate: newDate })
+
+      // 2. 현재 날짜 raw_content에서 줄 제거 + 저장
+      const lines = text.split('\n')
+      const newLines = lines.filter((_, index) => index !== task.lineIndex)
+      const newText = newLines.join('\n')
+      setText(newText)
+      setSelectedTask(null)
+      await saveLog(newText, parseAllTasks(newText).length, 0)
+
+      // 3. 대상 날짜 daily_log에 줄 추가
+      const supabase = createClient()
+      const taskLine = formatProjectLine(task.project_name, task.content)
+      const { data: targetLog } = await supabase
+        .from('daily_logs').select('*')
+        .eq('user_id', user.id).eq('log_date', newDate).maybeSingle()
+
+      if (targetLog) {
+        const content = targetLog.raw_content
+          ? targetLog.raw_content + '\n' + taskLine
+          : taskLine
+        await supabase.from('daily_logs')
+          .update({ raw_content: content }).eq('id', targetLog.id)
+      } else {
+        await supabase.from('daily_logs')
+          .insert({ user_id: user.id, log_date: newDate, raw_content: taskLine })
+      }
+
+      // 4. 캐시 무효화
+      dataCache.invalidate(cacheKeys.workLogs(user.id, newDate))
+      dataCache.invalidate(cacheKeys.dailyLog(user.id, newDate))
+      dataCache.invalidatePattern('incomplete')
+      dataCache.invalidatePattern('weeklyStats')
+      dataCache.invalidate(cacheKeys.projectWorkLogs(user.id))
+
+      onSave?.()
+    } catch (err) {
+      console.error('업무 이동 실패:', err)
+      alert('날짜 이동에 실패했습니다.')
+    }
+  }
+
   const saveWithText = useCallback(async (textToSave: string) => {
     try {
       setSaving(true)
@@ -531,11 +583,6 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value)
     setHasUnsavedChanges(true)
-  }
-
-  const formatProjectLine = (project: string, content: string) => {
-    const hasSpace = project.includes(' ')
-    return hasSpace ? `#${project}/ ${content}` : `#${project} ${content}`
   }
 
   const handleAddIncompleteTask = (task: IncompleteTaskData) => {
@@ -801,6 +848,30 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                   </p>
                 )}
               </div>
+
+              {/* 날짜 이동 */}
+              {task.workLogId && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-2">
+                    날짜 이동
+                  </label>
+                  <input
+                    type="date"
+                    value=""
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      if (e.target.value && e.target.value !== targetDate) {
+                        handleMoveTask(task, e.target.value)
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white transition-colors"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    다른 날짜를 선택하면 업무가 이동됩니다
+                  </p>
+                </div>
+              )}
 
               {/* 세부 업무 */}
               <div>

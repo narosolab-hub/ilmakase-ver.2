@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { DailyLogEditor, CalendarView, DatePicker, WeeklySummary, MobileCalendarPanel } from '@/components/WorkLog'
-import { MobileBottomNav } from '@/components/UI'
+import { MobileBottomNav, DesktopTabs } from '@/components/UI'
 import { getKSTDate } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -89,36 +89,7 @@ export default function WorkLogPage() {
                 </div>
               </div>
 
-              {/* 탭 메뉴 - 데스크톱만 */}
-              <div className="flex gap-2 mt-4">
-                <a
-                  href="/worklog"
-                  className="px-5 py-2 rounded-xl font-medium bg-white text-primary-600 shadow-sm"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>📝</span>
-                    <span>데일리 로그</span>
-                  </span>
-                </a>
-                <a
-                  href="/projects"
-                  className="px-5 py-2 rounded-xl font-medium text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>📁</span>
-                    <span>프로젝트</span>
-                  </span>
-                </a>
-                <a
-                  href="/review"
-                  className="px-5 py-2 rounded-xl font-medium text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>📊</span>
-                    <span>회고</span>
-                  </span>
-                </a>
-              </div>
+              <DesktopTabs />
             </>
           )}
         </div>

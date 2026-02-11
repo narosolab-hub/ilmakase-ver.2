@@ -69,9 +69,10 @@ export const cacheKeys = {
   weeklyStats: (userId: string, weekStart: string) => `weeklyStats:${userId}:${weekStart}`,
   projects: (userId: string) => `projects:${userId}`,
   incompleteTasks: (userId: string, date: string) => `incomplete:${userId}:${date}`,
-  aiCoaching: (tasksHash: string) => `aiCoaching:${tasksHash}`,
   monthlyReview: (userId: string, yearMonth: string) => `monthlyReview:${userId}:${yearMonth}`,
   monthlyWorkSummary: (userId: string, yearMonth: string) => `monthlyWorkSummary:${userId}:${yearMonth}`,
+  projectWorkLogs: (userId: string) => `projectWorkLogs:${userId}`,
+  careerDocs: (userId: string) => `careerDocs:${userId}`,
 }
 
 // 업무 목록을 해시로 변환 (캐시 키용)

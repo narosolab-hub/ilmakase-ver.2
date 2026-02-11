@@ -101,5 +101,39 @@ export const mapDailyLog = (db: DailyLogDB): DailyLog => ({
 })
 
 // ============================================
-// 필요 시 다른 테이블도 여기에 추가
+// CareerDocument
 // ============================================
+
+type CareerDocumentDB = Database['public']['Tables']['career_documents']['Row']
+
+export interface CareerDocumentMapped {
+  id: string
+  userId: string
+  companyId: string | null
+  projectId: string | null
+  title: string
+  content: string | null
+  projectIds: string[]
+  priorityConfig: { projectId: string; priority: string }[] | null
+  periodStart: string | null
+  periodEnd: string | null
+  role: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export const mapCareerDocument = (db: CareerDocumentDB): CareerDocumentMapped => ({
+  id: db.id,
+  userId: db.user_id,
+  companyId: db.company_id ?? null,
+  projectId: db.project_id ?? null,
+  title: db.title,
+  content: db.content ?? null,
+  projectIds: db.project_ids ?? [],
+  priorityConfig: db.priority_config as CareerDocumentMapped['priorityConfig'],
+  periodStart: db.period_start ?? null,
+  periodEnd: db.period_end ?? null,
+  role: db.role ?? null,
+  createdAt: db.created_at ?? '',
+  updatedAt: db.updated_at ?? '',
+})

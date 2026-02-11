@@ -99,6 +99,22 @@ export interface MonthlyWorkSummary {
   projects: ProjectWorkGroup[]
 }
 
+// 경력기술서 문서 타입 (저장된 문서)
+export interface CareerDocument {
+  id: string
+  userId: string
+  companyId: string | null
+  title: string
+  content: string | null
+  projectIds: string[]
+  priorityConfig: { projectId: string; priority: string }[] | null
+  periodStart: string | null
+  periodEnd: string | null
+  role: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 // 프로젝트 성과 타입
 export interface ProjectOutcome {
   type: 'quantitative' | 'qualitative'  // 정량적 / 정성적

@@ -56,3 +56,12 @@ export function parseAllTasks(text: string): ParsedTask[] {
 
   return tasks
 }
+
+/**
+ * 프로젝트명과 업무 내용으로 텍스트 라인 생성
+ * 프로젝트명에 띄어쓰기가 있으면 / 구분자 사용
+ */
+export function formatProjectLine(project: string, content: string): string {
+  const hasSpace = project.includes(' ')
+  return hasSpace ? `#${project}/ ${content}` : `#${project} ${content}`
+}

@@ -5,7 +5,7 @@ import { format, subMonths } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { useAuth } from '@/hooks/useAuth'
 import { MonthlyWorkSummary, MentorFeedback, KPTReflection } from '@/components/Review'
-import { MobileBottomNav } from '@/components/UI'
+import { MobileBottomNav, DesktopTabs } from '@/components/UI'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import type { MonthlyWorkSummary as MonthlyWorkSummaryType, MentorFeedback as MentorFeedbackType, KPTReflection as KPTReflectionType } from '@/types'
 
@@ -177,36 +177,7 @@ export default function ReviewPage() {
             </div>
           </div>
 
-          {/* 탭 메뉴 - 데스크톱만 */}
-          <div className="hidden lg:flex gap-2 mt-4">
-            <a
-              href="/worklog"
-              className="px-5 py-2 rounded-xl font-medium text-gray-600 hover:text-gray-900 hover:bg-white/50"
-            >
-              <span className="flex items-center gap-2">
-                <span>📝</span>
-                <span>데일리 로그</span>
-              </span>
-            </a>
-            <a
-              href="/projects"
-              className="px-5 py-2 rounded-xl font-medium text-gray-600 hover:text-gray-900 hover:bg-white/50"
-            >
-              <span className="flex items-center gap-2">
-                <span>📁</span>
-                <span>프로젝트</span>
-              </span>
-            </a>
-            <a
-              href="/review"
-              className="px-5 py-2 rounded-xl font-medium bg-white text-primary-600 shadow-sm"
-            >
-              <span className="flex items-center gap-2">
-                <span>📊</span>
-                <span>회고</span>
-              </span>
-            </a>
-          </div>
+          <DesktopTabs />
         </div>
       </header>
 

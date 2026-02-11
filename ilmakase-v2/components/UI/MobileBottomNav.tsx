@@ -2,12 +2,7 @@
 
 import { usePathname } from 'next/navigation'
 import { useIsMobile } from '@/hooks/useIsMobile'
-
-const NAV_ITEMS = [
-  { href: '/worklog', label: '데일리 로그', icon: '📝' },
-  { href: '/projects', label: '프로젝트', icon: '📁' },
-  { href: '/review', label: '회고', icon: '📊' },
-]
+import { NAV_ITEMS } from '@/lib/navigation'
 
 export default function MobileBottomNav() {
   const pathname = usePathname()
@@ -35,7 +30,7 @@ export default function MobileBottomNav() {
             >
               <span className="text-lg">{item.icon}</span>
               <span className={`text-[10px] font-medium ${isActive ? 'text-primary-600' : 'text-gray-500'}`}>
-                {item.label}
+                {item.mobileLabel}
               </span>
             </a>
           )

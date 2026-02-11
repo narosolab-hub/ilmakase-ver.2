@@ -61,12 +61,16 @@ export type Database = {
       career_documents: {
         Row: {
           brief_version: string | null
+          company_id: string | null
+          content: string | null
           created_at: string | null
           detailed_version: string | null
           id: string
           period_end: string | null
           period_start: string | null
+          priority_config: Json | null
           project_id: string | null
+          project_ids: string[] | null
           role: string | null
           star_version: Json | null
           task_summary: Json | null
@@ -78,12 +82,16 @@ export type Database = {
         }
         Insert: {
           brief_version?: string | null
+          company_id?: string | null
+          content?: string | null
           created_at?: string | null
           detailed_version?: string | null
           id?: string
           period_end?: string | null
           period_start?: string | null
+          priority_config?: Json | null
           project_id?: string | null
+          project_ids?: string[] | null
           role?: string | null
           star_version?: Json | null
           task_summary?: Json | null
@@ -95,12 +103,16 @@ export type Database = {
         }
         Update: {
           brief_version?: string | null
+          company_id?: string | null
+          content?: string | null
           created_at?: string | null
           detailed_version?: string | null
           id?: string
           period_end?: string | null
           period_start?: string | null
+          priority_config?: Json | null
           project_id?: string | null
+          project_ids?: string[] | null
           role?: string | null
           star_version?: Json | null
           task_summary?: Json | null
@@ -111,6 +123,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "career_documents_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "career_documents_project_id_fkey"
             columns: ["project_id"]
