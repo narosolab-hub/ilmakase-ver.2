@@ -4,6 +4,8 @@ import { useState, useMemo, useCallback } from 'react'
 import type { WorkLog } from '@/lib/mappers'
 import type { Project, Subtask } from '@/types'
 import { calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
+import DueDatePicker from '@/components/UI/DueDatePicker'
+import DateMovePicker from '@/components/UI/DateMovePicker'
 
 interface ProjectDetailPanelProps {
   project: Project | null
@@ -14,6 +16,7 @@ interface ProjectDetailPanelProps {
   onMoveWorkLog?: (wl: WorkLog, newDate: string) => Promise<void>
   onEditProject?: (project: Project) => void
   onCompleteProject?: (project: Project) => void
+  onDeleteProject?: (project: Project) => void
   onBack?: () => void // 모바일용
 }
 
@@ -57,6 +60,7 @@ export default function ProjectDetailPanel({
   onMoveWorkLog,
   onEditProject,
   onCompleteProject,
+  onDeleteProject,
   onBack,
 }: ProjectDetailPanelProps) {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
@@ -149,6 +153,18 @@ export default function ProjectDetailPanel({
     await onUpdateWorkLog(wl.id, {
       subtasks: updated.length > 0 ? updated as unknown as Subtask[] : null,
       progress: newProgress,
+    })
+  }, [onUpdateWorkLog])
+
+  const handleEditSubtask = useCallback(async (wl: WorkLog, subtaskId: string, newContent: string) => {
+    if (!wl.subtasks) return
+    const trimmed = newContent.trim()
+    if (!trimmed) return
+    const updated = wl.subtasks.map(s =>
+      s.id === subtaskId ? { ...s, content: trimmed } : s
+    )
+    await onUpdateWorkLog(wl.id, {
+      subtasks: updated as unknown as Subtask[],
     })
   }, [onUpdateWorkLog])
 
@@ -262,30 +278,19 @@ export default function ProjectDetailPanel({
               )}
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-gray-400">마감</span>
-                <input
-                  type="date"
-                  value={wl.dueDate || ''}
-                  onChange={e => handleSetDueDate(wl, e.target.value || null)}
-                  className="text-[11px] border border-gray-200 rounded-lg px-2 py-1 text-gray-600"
+                <DueDatePicker
+                  value={wl.dueDate || null}
+                  onChange={(date) => handleSetDueDate(wl, date)}
+                  compact
                 />
-                {wl.dueDate && (
-                  <button onClick={() => handleSetDueDate(wl, null)} className="text-[11px] text-gray-400 hover:text-red-400">
-                    해제
-                  </button>
-                )}
               </div>
               {onMoveWorkLog && (
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-gray-400">이동</span>
-                  <input
-                    type="date"
-                    value=""
-                    onChange={e => {
-                      if (e.target.value && e.target.value !== wl.workDate) {
-                        onMoveWorkLog(wl, e.target.value)
-                      }
-                    }}
-                    className="text-[11px] border border-gray-200 rounded-lg px-2 py-1 text-gray-600"
+                  <DateMovePicker
+                    currentDate={wl.workDate}
+                    onMove={(date) => onMoveWorkLog(wl, date)}
+                    compact
                   />
                 </div>
               )}
@@ -303,7 +308,7 @@ export default function ProjectDetailPanel({
               </div>
               <div className="px-3 py-1.5">
                 {wl.subtasks?.map(st => (
-                  <div key={st.id} className="flex items-center gap-2.5 py-1.5 group/sub border-b border-gray-100/50 last:border-0">
+                  <div key={st.id} className="flex items-center gap-2.5 py-1.5 px-1.5 -mx-1.5 rounded-lg group/sub border border-transparent focus-within:border-primary-300 focus-within:bg-primary-50/30 transition-colors">
                     <button
                       onClick={() => handleToggleSubtask(wl, st.id)}
                       className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
@@ -316,9 +321,28 @@ export default function ProjectDetailPanel({
                         </svg>
                       )}
                     </button>
-                    <span className={`text-[13px] flex-1 ${st.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
-                      {st.content}
-                    </span>
+                    <input
+                      type="text"
+                      defaultValue={st.content}
+                      onBlur={(e) => {
+                        const val = e.target.value.trim()
+                        if (val && val !== st.content) {
+                          handleEditSubtask(wl, st.id, val)
+                        } else {
+                          e.target.value = st.content
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                        if (e.key === 'Escape') {
+                          (e.target as HTMLInputElement).value = st.content;
+                          (e.target as HTMLInputElement).blur()
+                        }
+                      }}
+                      className={`text-[13px] flex-1 bg-transparent outline-none px-0 py-0.5 ${
+                        st.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'
+                      }`}
+                    />
                     <button
                       onClick={() => handleDeleteSubtask(wl, st.id)}
                       className="text-gray-300 hover:text-red-400 opacity-0 group-hover/sub:opacity-100 text-xs p-0.5"
@@ -444,12 +468,24 @@ export default function ProjectDetailPanel({
                 상세 정보 편집
               </button>
             )}
-            {onCompleteProject && project.status !== '완료' && (
+            {onCompleteProject && (
               <button
                 onClick={() => onCompleteProject(project)}
-                className="text-xs px-3 py-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-gray-200"
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors border border-gray-200 ${
+                  project.status === '완료'
+                    ? 'text-gray-500 hover:text-primary-600 hover:bg-primary-50'
+                    : 'text-gray-500 hover:text-emerald-600 hover:bg-emerald-50'
+                }`}
               >
-                프로젝트 완료
+                {project.status === '완료' ? '진행 중으로 변경' : '프로젝트 완료'}
+              </button>
+            )}
+            {onDeleteProject && (
+              <button
+                onClick={() => onDeleteProject(project)}
+                className="text-xs px-3 py-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-gray-200"
+              >
+                삭제
               </button>
             )}
           </div>

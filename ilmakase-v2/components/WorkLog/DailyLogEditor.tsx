@@ -12,6 +12,8 @@ import { useAuth } from '@/hooks/useAuth'
 import { createClient } from '@/lib/supabase/client'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import { Button } from '@/components/UI'
+import DueDatePicker from '@/components/UI/DueDatePicker'
+import DateMovePicker from '@/components/UI/DateMovePicker'
 import MobileQuickInput from './MobileQuickInput'
 import MobileFullEditor from './MobileFullEditor'
 
@@ -164,12 +166,18 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const tasksWithDBStatus: TaskWithDB[] = useMemo(() => {
     void cacheVersion
 
+    const normalize = (s: string) => s.replace(/\s+/g, '')
+
     return parsedTasks.map(task => {
       const cacheKey = `${task.project_name}:${task.content}`
       const cachedStatus = localStatusCache.current.get(cacheKey)
 
+      // 정확 매치 → 공백 제거 매치 → 포함 매치
       const matchingLog = workLogs.find(
         wl => wl.content === task.content && wl.keywords?.includes(task.project_name)
+      ) || workLogs.find(
+        wl => wl.keywords?.includes(task.project_name) &&
+              normalize(wl.content) === normalize(task.content)
       )
 
       if (matchingLog) {
@@ -445,6 +453,35 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     }
   }
 
+  const handleEditSubtask = async (task: TaskWithDB, subtaskId: string, newContent: string) => {
+    if (!task.workLogId || !task.subtasks) return
+    const trimmed = newContent.trim()
+    if (!trimmed) return
+
+    const updatedSubtasks = task.subtasks.map(s =>
+      s.id === subtaskId ? { ...s, content: trimmed } : s
+    )
+    const cacheKey = `${task.project_name}:${task.content}`
+
+    updateLocalCache(cacheKey, {
+      progress: task.progress,
+      isCompleted: task.isCompleted,
+      detail: task.detail,
+      dueDate: task.dueDate,
+      subtasks: updatedSubtasks,
+    })
+
+    try {
+      await updateWorkLog(task.workLogId, {
+        subtasks: updatedSubtasks as unknown as null,
+      })
+      onSave?.()
+    } catch (err) {
+      console.error('[handleEditSubtask]', err)
+      deleteLocalCache(cacheKey)
+    }
+  }
+
   const handleDeleteTask = async (task: TaskWithDB) => {
     if (!task.workLogId) return
     if (!confirm('이 업무를 삭제하시겠습니까?')) return
@@ -515,12 +552,35 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     try {
       setSaving(true)
       const tasks = parseAllTasks(textToSave)
+      const normalizeStr = (s: string) => s.replace(/\s+/g, '')
+
+      // workLog 매칭 헬퍼 (정확 → 공백제거 매치)
+      const findWorkLog = (content: string, project: string) => {
+        return workLogs.find(wl => wl.content === content && wl.keywords?.includes(project))
+          || workLogs.find(wl => wl.keywords?.includes(project) && normalizeStr(wl.content) === normalizeStr(content))
+      }
+
+      // localStatusCache 매칭 헬퍼 (정확 → 공백제거 매치)
+      const findCached = (content: string, project: string) => {
+        const exactKey = `${project}:${content}`
+        const exact = localStatusCache.current.get(exactKey)
+        if (exact) return exact
+        const normalized = normalizeStr(content)
+        for (const [key, value] of localStatusCache.current) {
+          const colonIdx = key.indexOf(':')
+          const keyProject = key.substring(0, colonIdx)
+          const keyContent = key.substring(colonIdx + 1)
+          if (keyProject === project && normalizeStr(keyContent) === normalized) {
+            return value
+          }
+        }
+        return undefined
+      }
 
       const completedCount = tasks.filter(t => {
-        const cacheKey = `${t.project_name}:${t.content}`
-        const cached = localStatusCache.current.get(cacheKey)
+        const cached = findCached(t.content, t.project_name)
         if (cached) return cached.isCompleted
-        const existing = workLogs.find(wl => wl.content === t.content)
+        const existing = findWorkLog(t.content, t.project_name)
         return existing?.isCompleted ?? false
       }).length
       const completionRate = tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0
@@ -548,15 +608,20 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       }
 
       // localStatusCache를 carryOverData로 변환 (세부 업무/메모/마감일 복사용)
+      // 새 task content 기준으로 키를 재매핑
       const carryOverData = new Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null }>()
-      localStatusCache.current.forEach((value, key) => {
-        carryOverData.set(key, {
-          detail: value.detail,
-          subtasks: value.subtasks,
-          progress: value.progress,
-          dueDate: value.dueDate,
-        })
-      })
+      for (const task of tasks) {
+        const newKey = `${task.project_name}:${task.content}`
+        const cached = findCached(task.content, task.project_name)
+        if (cached) {
+          carryOverData.set(newKey, {
+            detail: cached.detail,
+            subtasks: cached.subtasks,
+            progress: cached.progress,
+            dueDate: cached.dueDate,
+          })
+        }
+      }
 
       await syncFromParsedTasks(tasks, projectMappings, carryOverData)
       localStatusCache.current.clear()
@@ -813,64 +878,22 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                 )}
               </div>
 
-              {/* 마감일 */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-medium text-gray-700">
-                    마감일
-                  </label>
-                  {task.dueDate && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDueDateChange(task, null)
-                      }}
-                      className="text-xs text-gray-400 hover:text-red-500"
-                    >
-                      해제
-                    </button>
-                  )}
-                </div>
-                {task.workLogId ? (
-                  <input
-                    type="date"
-                    value={task.dueDate || ''}
-                    onChange={(e) => {
-                      e.stopPropagation()
-                      handleDueDateChange(task, e.target.value || null)
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white transition-colors"
+              {/* 마감일 + 날짜 이동 */}
+              {task.workLogId ? (
+                <div className="flex items-center gap-3">
+                  <DueDatePicker
+                    value={task.dueDate || null}
+                    onChange={(date) => handleDueDateChange(task, date)}
                   />
-                ) : (
-                  <p className="text-xs text-gray-400 py-2">
-                    먼저 저장 후 마감일을 설정할 수 있습니다
-                  </p>
-                )}
-              </div>
-
-              {/* 날짜 이동 */}
-              {task.workLogId && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-2">
-                    날짜 이동
-                  </label>
-                  <input
-                    type="date"
-                    value=""
-                    onChange={(e) => {
-                      e.stopPropagation()
-                      if (e.target.value && e.target.value !== targetDate) {
-                        handleMoveTask(task, e.target.value)
-                      }
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-primary-400 bg-white transition-colors"
+                  <DateMovePicker
+                    currentDate={targetDate}
+                    onMove={(date) => handleMoveTask(task, date)}
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    다른 날짜를 선택하면 업무가 이동됩니다
-                  </p>
                 </div>
+              ) : (
+                <p className="text-xs text-gray-400 py-1">
+                  먼저 저장 후 마감일/이동을 설정할 수 있습니다
+                </p>
               )}
 
               {/* 세부 업무 */}
@@ -882,7 +905,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                   {task.subtasks && task.subtasks.map((subtask) => (
                     <div
                       key={subtask.id}
-                      className="flex items-center gap-2 p-2 bg-white rounded-lg group"
+                      className="flex items-center gap-2 p-2 bg-white rounded-lg group border border-transparent focus-within:border-primary-300 focus-within:bg-primary-50/30 transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <button
@@ -899,11 +922,28 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                           </svg>
                         )}
                       </button>
-                      <span className={`flex-1 text-sm ${
-                        subtask.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'
-                      }`}>
-                        {subtask.content}
-                      </span>
+                      <input
+                        type="text"
+                        defaultValue={subtask.content}
+                        onBlur={(e) => {
+                          const val = e.target.value.trim()
+                          if (val && val !== subtask.content) {
+                            handleEditSubtask(task, subtask.id, val)
+                          } else {
+                            e.target.value = subtask.content
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                          if (e.key === 'Escape') {
+                            (e.target as HTMLInputElement).value = subtask.content;
+                            (e.target as HTMLInputElement).blur()
+                          }
+                        }}
+                        className={`flex-1 text-sm bg-transparent outline-none px-0 py-0.5 ${
+                          subtask.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'
+                        }`}
+                      />
                       <button
                         onClick={() => handleDeleteSubtask(task, subtask.id)}
                         className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"

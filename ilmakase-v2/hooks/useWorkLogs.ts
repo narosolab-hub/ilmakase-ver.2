@@ -103,20 +103,68 @@ export function useWorkLogs(targetDate: string) {
       .eq('user_id', user.id)
       .eq('work_date', targetDate)
 
-    // 기존 로그의 content를 키로 하는 맵 생성 (진행도 보존용)
-    const existingLogMap = new Map(
-      (existingLogs || []).map(log => [log.content, log])
+    const existing = existingLogs || []
+
+    // 1단계: content 정확 매치
+    const exactMatchByContent = new Map(
+      existing.map(log => [log.content, log])
     )
+    const matchedLogIds = new Set<string>()
+    const matchedTaskIndices = new Set<number>()
+    // task index → matched log
+    const taskLogPairs = new Map<number, typeof existing[0]>()
 
-    // 새로운 태스크의 content 목록
-    const newTaskContents = new Set(tasks.map(t => t.content))
+    for (let i = 0; i < tasks.length; i++) {
+      const log = exactMatchByContent.get(tasks[i].content)
+      if (log && !matchedLogIds.has(log.id)) {
+        taskLogPairs.set(i, log)
+        matchedLogIds.add(log.id)
+        matchedTaskIndices.add(i)
+      }
+    }
 
-    // 삭제해야 할 로그들 (새 태스크에 없는 것들)
-    const logsToDelete = (existingLogs || []).filter(
-      log => !newTaskContents.has(log.content)
-    )
+    // 2단계: 매칭 안 된 태스크 ↔ 매칭 안 된 로그 간 유사도 매칭
+    // (띄어쓰기 변경, 오타 수정 등 감지)
+    const unmatchedTasks = tasks
+      .map((t, i) => ({ task: t, index: i }))
+      .filter(({ index }) => !matchedTaskIndices.has(index))
+    const unmatchedLogs = existing.filter(l => !matchedLogIds.has(l.id))
 
-    // 삭제 실행
+    if (unmatchedTasks.length > 0 && unmatchedLogs.length > 0) {
+      // 공백 제거 후 비교 (띄어쓰기 변경 감지)
+      const normalize = (s: string) => s.replace(/\s+/g, '')
+
+      for (const { task, index } of unmatchedTasks) {
+        const normalizedTask = normalize(task.content)
+        // 같은 프로젝트 + 공백 제거 후 동일 → 내용 수정(띄어쓰기 변경)으로 판단
+        const match = unmatchedLogs.find(log =>
+          !matchedLogIds.has(log.id) &&
+          log.keywords?.[0] === task.project_name &&
+          normalize(log.content) === normalizedTask
+        )
+        if (match) {
+          taskLogPairs.set(index, match)
+          matchedLogIds.add(match.id)
+          matchedTaskIndices.add(index)
+          continue
+        }
+        // 같은 프로젝트 + 한쪽이 다른 쪽을 포함 → 내용 수정으로 판단
+        const partialMatch = unmatchedLogs.find(log =>
+          !matchedLogIds.has(log.id) &&
+          log.keywords?.[0] === task.project_name &&
+          (normalizedTask.includes(normalize(log.content)) ||
+           normalize(log.content).includes(normalizedTask))
+        )
+        if (partialMatch) {
+          taskLogPairs.set(index, partialMatch)
+          matchedLogIds.add(partialMatch.id)
+          matchedTaskIndices.add(index)
+        }
+      }
+    }
+
+    // 삭제: 어떤 태스크와도 매칭 안 된 기존 로그
+    const logsToDelete = existing.filter(l => !matchedLogIds.has(l.id))
     if (logsToDelete.length > 0) {
       await supabase
         .from('work_logs')
@@ -129,23 +177,12 @@ export function useWorkLogs(targetDate: string) {
       return
     }
 
-    // 새로 추가해야 할 태스크들 (기존에 없던 것들)
-    const tasksToInsert = tasks.filter(
-      task => !existingLogMap.has(task.content)
-    )
-
-    // 업데이트해야 할 태스크들 (기존에 있지만 project 변경 등)
-    const tasksToUpdate = tasks.filter(
-      task => existingLogMap.has(task.content)
-    )
-
-    // 새 로그 삽입
+    // 새로 추가: 매칭 안 된 태스크
+    const tasksToInsert = tasks.filter((_, i) => !matchedTaskIndices.has(i))
     if (tasksToInsert.length > 0) {
       const logsToInsert = tasksToInsert.map(task => {
-        // carryOverData에서 세부 업무/메모 가져오기
         const cacheKey = `${task.project_name}:${task.content}`
         const carryOver = carryOverData?.get(cacheKey)
-
         return {
           user_id: user.id,
           project_id: projectMappings[task.project_name] || null,
@@ -159,26 +196,31 @@ export function useWorkLogs(targetDate: string) {
           subtasks: (carryOver?.subtasks ?? null) as unknown as Json,
         }
       })
-
       await supabase.from('work_logs').insert(logsToInsert)
     }
 
-    // 기존 로그 업데이트 (프로젝트 변경 시에만)
-    for (const task of tasksToUpdate) {
-      const existingLog = existingLogMap.get(task.content)
-      if (existingLog) {
-        const newProjectId = projectMappings[task.project_name] || null
-        // 프로젝트나 키워드가 변경된 경우에만 업데이트
-        if (existingLog.project_id !== newProjectId ||
-            !existingLog.keywords?.includes(task.project_name)) {
-          await supabase
-            .from('work_logs')
-            .update({
-              project_id: newProjectId,
-              keywords: [task.project_name],
-            })
-            .eq('id', existingLog.id)
+    // 업데이트: 매칭된 태스크 (content 변경, 프로젝트 변경 등)
+    for (let i = 0; i < tasks.length; i++) {
+      const log = taskLogPairs.get(i)
+      if (!log) continue
+      const task = tasks[i]
+      const newProjectId = projectMappings[task.project_name] || null
+      const contentChanged = log.content !== task.content
+      const projectChanged = log.project_id !== newProjectId ||
+        !log.keywords?.includes(task.project_name)
+
+      if (contentChanged || projectChanged) {
+        const updates: Record<string, unknown> = {
+          keywords: [task.project_name],
+          project_id: newProjectId,
         }
+        if (contentChanged) {
+          updates.content = task.content
+        }
+        await supabase
+          .from('work_logs')
+          .update(updates)
+          .eq('id', log.id)
       }
     }
 

@@ -11,7 +11,7 @@ export default function WorkLogPage() {
   const { user } = useAuth()
   const isMobile = useIsMobile()
   const [selectedDate, setSelectedDate] = useState(getKSTDate())
-  const [showCalendar, setShowCalendar] = useState(false)
+  const [showCalendar, setShowCalendar] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
 
   // DailyLogEditor에서 저장 완료 시 호출

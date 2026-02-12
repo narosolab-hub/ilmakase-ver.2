@@ -358,7 +358,7 @@ if (!initialLoadDone && loading) {
 
 ---
 
-## 현재 진행 상황 (2026-02-11)
+## 현재 진행 상황 (2026-02-12)
 
 ### 완료
 - [x] 프로젝트 구조 세팅 (ilmakase-v2)
@@ -443,6 +443,37 @@ if (!initialLoadDone && loading) {
   - DocViewModal: 저장된 문서 보기/편집/복사/삭제
   - `useCareerDocs.ts` — career_documents CRUD
   - DB 마이그레이션: `database/migrate-career-docs-company.sql` (company_id, content, project_ids, priority_config)
+
+- [x] **마감일/날짜이동 캘린더 팝오버 UI** (2026-02-12)
+  - `DueDatePicker.tsx` — 커스텀 캘린더 팝오버 (빠른 선택 칩 + 월간 달력 + 해제)
+  - `DateMovePicker.tsx` — 날짜 이동 전용 캘린더 팝오버 (현재 날짜 비활성화)
+  - `<input type="date">` → 커스텀 팝오버로 전면 교체 (DailyLogEditor, ProjectDetailPanel)
+  - 마감일 + 날짜 이동 한 줄 배치 (공간 절약)
+  - 팝오버 등장 애니메이션 (popover-enter, globals.css)
+- [x] **세부업무 인라인 수정** (2026-02-12)
+  - 텍스트 클릭 → 바로 입력 필드 활성화 (별도 버튼 없음)
+  - blur 시 자동 저장, Enter/Esc 지원
+  - 행 전체 focus-within 하이라이트 (border-primary-300 + bg-primary-50/30)
+  - DailyLogEditor + ProjectDetailPanel 양쪽 적용
+- [x] **프로젝트 완료/미완료 토글** (2026-02-12)
+  - 완료 처리 후 "진행 중으로 변경" 버튼으로 되돌리기 가능
+  - confirm 메시지 상태별 분기
+- [x] **프로젝트 삭제 기능** (2026-02-12)
+  - ProjectDetailPanel에 삭제 버튼 추가
+  - 연결된 업무 수 안내 후 confirm
+  - 프로젝트만 삭제, 업무 기록은 유지
+- [x] **프로젝트 상세 편집 모달 개선** (2026-02-12)
+  - 아코디언 섹션 (기본 정보만 열림, 내용 있는 섹션 자동 열림)
+  - 접힌 상태에서 미리보기 텍스트 + 채워진 섹션 주황색 점
+  - 각 섹션에 "왜 써야 하는지" 가이드 문구
+  - 성과 입력 간소화: 정량/정성 셀렉트 제거 → 숫자 포함 여부로 자동 분류
+- [x] **업무 content 수정 시 데이터 소실 버그 수정** (2026-02-12)
+  - 기존: content 정확 일치로만 work_log 매칭 → 띄어쓰기 변경 시 세부업무/메모 소실
+  - 수정: 정확 매치 → 공백 제거 매치 → 포함 매치 3단계 폴백
+  - syncFromParsedTasks: 매칭된 로그는 content UPDATE (삭제+재생성 방지)
+  - DailyLogEditor: tasksWithDBStatus, saveWithText 모두 동일 매칭 보완
+- [x] **데스크톱 캘린더 기본 펼침** (2026-02-12)
+  - showCalendar 초기값 true (토글 버튼 유지)
 
 ### 진행 예정
 - [ ] (추후) AI 코칭 고도화 후 재도입 검토

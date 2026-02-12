@@ -18,6 +18,7 @@ export default function ProjectsPage() {
   const {
     createProject,
     updateProject,
+    deleteProject,
   } = useProjects()
   const {
     projectWorkLogs,
@@ -58,16 +59,35 @@ export default function ProjectsPage() {
     }
   }
 
-  const handleCompleteProject = async (project: Project) => {
-    if (!confirm('이 프로젝트를 완료 처리하시겠습니까?')) return
+  const handleToggleProjectStatus = async (project: Project) => {
+    const isCompleting = project.status !== '완료'
+    const msg = isCompleting
+      ? '이 프로젝트를 완료 처리하시겠습니까?'
+      : '이 프로젝트를 진행 중으로 되돌리시겠습니까?'
+    if (!confirm(msg)) return
     try {
       await updateProject(project.id, {
-        status: '완료',
-        end_date: new Date().toISOString().split('T')[0],
+        status: isCompleting ? '완료' : '진행중',
+        end_date: isCompleting ? new Date().toISOString().split('T')[0] : null,
       })
       reload()
     } catch (err) {
-      console.error('프로젝트 완료 처리 실패:', err)
+      console.error('프로젝트 상태 변경 실패:', err)
+    }
+  }
+
+  const handleDeleteProject = async (project: Project) => {
+    const taskCount = projectWorkLogs.find(g => g.project?.id === project.id)?.workLogs.length || 0
+    const msg = taskCount > 0
+      ? `이 프로젝트에 업무 ${taskCount}개가 연결되어 있습니다.\n프로젝트만 삭제되고 업무 기록은 유지됩니다.\n삭제하시겠습니까?`
+      : '이 프로젝트를 삭제하시겠습니까?'
+    if (!confirm(msg)) return
+    try {
+      await deleteProject(project.id)
+      setSelectedProjectId(null)
+      reload()
+    } catch (err) {
+      console.error('프로젝트 삭제 실패:', err)
     }
   }
 
@@ -162,7 +182,8 @@ export default function ProjectsPage() {
           onDeleteWorkLog={deleteWorkLog}
           onMoveWorkLog={handleMoveWorkLog}
           onEditProject={setEditingProject}
-          onCompleteProject={handleCompleteProject}
+          onCompleteProject={handleToggleProjectStatus}
+          onDeleteProject={handleDeleteProject}
           onBack={() => setSelectedProjectId(null)}
         />
 
@@ -399,7 +420,8 @@ export default function ProjectsPage() {
                       onDeleteWorkLog={deleteWorkLog}
                       onMoveWorkLog={handleMoveWorkLog}
                       onEditProject={setEditingProject}
-                      onCompleteProject={handleCompleteProject}
+                      onCompleteProject={handleToggleProjectStatus}
+                      onDeleteProject={handleDeleteProject}
                     />
                   ) : (
                     <div className="h-full flex items-center justify-center text-gray-400">
