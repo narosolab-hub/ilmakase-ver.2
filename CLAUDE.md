@@ -358,7 +358,7 @@ if (!initialLoadDone && loading) {
 
 ---
 
-## 현재 진행 상황 (2026-02-12)
+## 현재 진행 상황 (2026-02-13)
 
 ### 완료
 - [x] 프로젝트 구조 세팅 (ilmakase-v2)
@@ -474,6 +474,21 @@ if (!initialLoadDone && loading) {
   - DailyLogEditor: tasksWithDBStatus, saveWithText 모두 동일 매칭 보완
 - [x] **데스크톱 캘린더 기본 펼침** (2026-02-12)
   - showCalendar 초기값 true (토글 버튼 유지)
+- [x] **게스트 모드 (비로그인 서비스 열람)** (2026-02-13)
+  - 스플래시/랜딩 제거 → `/` 접속 시 즉시 `/worklog` 리다이렉트
+  - 미들웨어: `/worklog`, `/projects`, `/career-doc`, `/review` 보호 라우트에서 제거
+  - 모든 탭 자유 탐색 가능, 실제 저장/생성 시에만 로그인 유도 (confirm 알럿)
+  - DailyLogEditor 게스트 드래프트: localStorage 저장 → 로그인 후 자동 복원/저장
+  - 훅 null-user 안전 처리: `throw` → `return null` 패턴
+  - 데스크톱/모바일 헤더에 로그인/회원가입 버튼 표시
+- [x] **프로젝트 탭 stats 중복 카운팅 수정** (2026-02-13)
+  - carry-over로 여러 날짜에 동일 업무 존재 시 중복 카운팅 문제
+  - `calcUniqueStats()`: 같은 content → 최신 workDate의 상태만 반영, 1건으로 카운팅
+- [x] **마감일 뱃지 D-day 카운트다운** (2026-02-13)
+  - 기존 "M/D까지" → D-day 카운트다운 형식 변경
+  - D-3(2/20), 내일까지(2/20), 오늘까지, D+1 지남(2/13) 등
+  - 7일 이상 남은 건 날짜만 표시, 지난 건 D+N 지남(날짜)
+  - DailyLogEditor + ProjectDetailPanel 양쪽 적용
 
 ### 진행 예정
 - [ ] (추후) AI 코칭 고도화 후 재도입 검토
