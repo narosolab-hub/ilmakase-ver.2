@@ -75,7 +75,7 @@ export function useDailyLog(targetDate: string) {
   }, [fetchLog])
 
   const saveLog = useCallback(async (rawContent: string, tasksCount?: number, completionRate?: number) => {
-    if (!user) throw new Error('로그인이 필요합니다')
+    if (!user) return null
 
     const supabase = createClient()
 

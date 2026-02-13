@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { DailyLogEditor, CalendarView, DatePicker, WeeklySummary, MobileCalendarPanel } from '@/components/WorkLog'
 import { MobileBottomNav, DesktopTabs } from '@/components/UI'
 import { getKSTDate } from '@/lib/utils'
@@ -8,21 +9,25 @@ import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 
 export default function WorkLogPage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
+  const router = useRouter()
   const isMobile = useIsMobile()
   const [selectedDate, setSelectedDate] = useState(getKSTDate())
   const [showCalendar, setShowCalendar] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  const isGuest = !user
 
   // DailyLogEditor에서 저장 완료 시 호출
   const handleWorkLogsUpdate = useCallback(() => {
     setRefreshKey(prev => prev + 1)
   }, [])
 
-  if (!user) {
+  // 인증 로딩 중일 때 (아주 짧은 시간)
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">로딩 중...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-gray-400 text-sm">잠시만요...</div>
       </div>
     )
   }
@@ -32,7 +37,7 @@ export default function WorkLogPage() {
       {/* 헤더 */}
       <header className="bg-white/80 backdrop-blur-sm sticky top-0 z-40 border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 lg:px-6 py-3 lg:py-4">
-          {/* 모바일 헤더: [캘린더] < 날짜 > */}
+          {/* 모바일 헤더 */}
           {isMobile ? (
             <div className="flex items-center">
               {/* 캘린더 버튼 */}
@@ -52,6 +57,16 @@ export default function WorkLogPage() {
                   onChange={setSelectedDate}
                 />
               </div>
+
+              {/* 게스트: 로그인 버튼 */}
+              {isGuest && (
+                <button
+                  onClick={() => router.push('/login')}
+                  className="px-3 py-1.5 text-sm font-medium text-primary-600 hover:bg-primary-50 rounded-lg transition-colors ml-2"
+                >
+                  로그인
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -67,8 +82,26 @@ export default function WorkLogPage() {
                   </div>
                 </div>
 
-                {/* 날짜 선택 & 캘린더 토글 */}
                 <div className="flex items-center gap-3">
+                  {/* 게스트: 로그인/시작하기 */}
+                  {isGuest && (
+                    <>
+                      <button
+                        onClick={() => router.push('/login')}
+                        className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors"
+                      >
+                        로그인
+                      </button>
+                      <button
+                        onClick={() => router.push('/signup')}
+                        className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors shadow-sm"
+                      >
+                        시작하기
+                      </button>
+                    </>
+                  )}
+
+                  {/* 날짜 선택 & 캘린더 토글 */}
                   <DatePicker
                     selectedDate={selectedDate}
                     onChange={setSelectedDate}

@@ -26,6 +26,7 @@ export function useProjectWorkLogs() {
   const fetchAll = useCallback(async () => {
     if (!user) {
       setLoading(false)
+      setInitialLoadDone(true)
       return
     }
 

@@ -60,7 +60,7 @@ export function useProjects() {
       summary?: string
     }
   ) => {
-    if (!user) throw new Error('로그인이 필요합니다')
+    if (!user) return null
 
     const supabase = createClient()
 

@@ -15,7 +15,10 @@ export function useCompanies() {
 
   // 회사 목록 로드
   const loadCompanies = useCallback(async () => {
-    if (!user) return
+    if (!user) {
+      setLoading(false)
+      return
+    }
 
     try {
       setLoading(true)

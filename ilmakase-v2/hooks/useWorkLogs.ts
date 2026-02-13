@@ -92,7 +92,7 @@ export function useWorkLogs(targetDate: string) {
     projectMappings: Record<string, string> = {},
     carryOverData?: Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null }>
   ) => {
-    if (!user) throw new Error('로그인이 필요합니다')
+    if (!user) return null
 
     const supabase = createClient()
 
@@ -247,7 +247,7 @@ export function useWorkLogs(targetDate: string) {
     id: string,
     updates: Partial<WorkLog>
   ) => {
-    if (!user) throw new Error('로그인이 필요합니다')
+    if (!user) return null
 
     const supabase = createClient()
     const dbUpdates = mapWorkLogToDB(updates)
@@ -268,7 +268,7 @@ export function useWorkLogs(targetDate: string) {
   }, [user])
 
   const deleteWorkLog = useCallback(async (id: string) => {
-    if (!user) throw new Error('로그인이 필요합니다')
+    if (!user) return
 
     const supabase = createClient()
 

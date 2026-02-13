@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useCompanies } from '@/hooks/useCompanies'
 import { useProjects } from '@/hooks/useProjects'
 import { useCareerDocs } from '@/hooks/useCareerDocs'
+import { useRouter } from 'next/navigation'
 import { MobileBottomNav, DesktopTabs, Button } from '@/components/UI'
 import {
   CompanyStep,
@@ -23,6 +24,8 @@ type Step = 'company' | 'projects' | 'priority' | 'result'
 
 export default function CareerDocPage() {
   const { user } = useAuth()
+  const router = useRouter()
+  const isGuest = !user
   const { companies, createCompany } = useCompanies()
   const { projects } = useProjects()
   const { careerDocs, loading: docsLoading, saveCareerDoc, updateCareerDoc, deleteCareerDoc } = useCareerDocs()
@@ -46,6 +49,12 @@ export default function CareerDocPage() {
 
   // 위저드 시작
   const startWizard = () => {
+    if (isGuest) {
+      if (confirm('경력기술서를 생성하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
+        router.push('/login')
+      }
+      return
+    }
     setMode('wizard')
     setCurrentStep('company')
     setSelectedCompany(null)
@@ -151,14 +160,6 @@ export default function CareerDocPage() {
   // 문서 모달에서 삭제
   const handleDeleteFromModal = async (id: string) => {
     await deleteCareerDoc(id)
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">로딩 중...</div>
-      </div>
-    )
   }
 
   // 위저드 모드
@@ -289,6 +290,23 @@ export default function CareerDocPage() {
                 <p className="text-xs text-gray-500">경력기술서</p>
               </div>
             </div>
+
+            {isGuest && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => router.push('/login')}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  로그인
+                </button>
+                <button
+                  onClick={() => router.push('/signup')}
+                  className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors shadow-sm"
+                >
+                  시작하기
+                </button>
+              </div>
+            )}
           </div>
 
           <DesktopTabs />

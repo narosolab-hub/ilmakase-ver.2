@@ -5,6 +5,7 @@ import { format, subMonths } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { useAuth } from '@/hooks/useAuth'
 import { MonthlyWorkSummary, MentorFeedback, KPTReflection } from '@/components/Review'
+import { useRouter } from 'next/navigation'
 import { MobileBottomNav, DesktopTabs } from '@/components/UI'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import type { MonthlyWorkSummary as MonthlyWorkSummaryType, MentorFeedback as MentorFeedbackType, KPTReflection as KPTReflectionType } from '@/types'
@@ -20,6 +21,8 @@ interface MonthlyReviewData {
 
 export default function ReviewPage() {
   const { user } = useAuth()
+  const router = useRouter()
+  const isGuest = !user
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [review, setReview] = useState<MonthlyReviewData | null>(null)
   const [workSummary, setWorkSummary] = useState<MonthlyWorkSummaryType | null>(null)
@@ -66,7 +69,12 @@ export default function ReviewPage() {
 
   // AI 피드백 생성
   const generateFeedback = async () => {
-    if (!user) return
+    if (!user) {
+      if (confirm('이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
+        router.push('/login')
+      }
+      return
+    }
     setGenerating(true)
     try {
       const res = await fetch('/api/monthly-review', {
@@ -94,7 +102,12 @@ export default function ReviewPage() {
 
   // KPT 저장
   const saveKPT = async (kpt: KPTReflectionType) => {
-    if (!user) return
+    if (!user) {
+      if (confirm('이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
+        router.push('/login')
+      }
+      return
+    }
     setSavingKPT(true)
     try {
       const res = await fetch('/api/monthly-review', {
@@ -152,14 +165,6 @@ export default function ReviewPage() {
 
   const hasWorkLogs = (workSummary?.totalTasks ?? 0) > 0
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">로딩 중...</div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 헤더 */}
@@ -175,6 +180,23 @@ export default function ReviewPage() {
                 <p className="text-xs text-gray-500">월간 회고</p>
               </div>
             </div>
+
+            {isGuest && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => router.push('/login')}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  로그인
+                </button>
+                <button
+                  onClick={() => router.push('/signup')}
+                  className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors shadow-sm"
+                >
+                  시작하기
+                </button>
+              </div>
+            )}
           </div>
 
           <DesktopTabs />

@@ -16,6 +16,9 @@ import DueDatePicker from '@/components/UI/DueDatePicker'
 import DateMovePicker from '@/components/UI/DateMovePicker'
 import MobileQuickInput from './MobileQuickInput'
 import MobileFullEditor from './MobileFullEditor'
+import { useRouter } from 'next/navigation'
+
+const GUEST_DRAFT_KEY = 'ilmakase_guest_draft'
 
 interface DailyLogEditorProps {
   targetDate: string
@@ -70,11 +73,13 @@ const THINKING_CHECKLIST = [
 
 export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorProps) {
   const { user } = useAuth()
+  const router = useRouter()
   const { log, loading, saveLog } = useDailyLog(targetDate)
   const { workLogs, syncFromParsedTasks, updateWorkLog, deleteWorkLog } = useWorkLogs(targetDate)
   const { getIncompleteTasks, invalidateCache, carryingOver } = useCarryOver()
   const { findProjectByName, createProject } = useProjects()
   const isMobile = useIsMobile()
+  const isGuest = !user
 
   const [text, setText] = useState('')
   const [parsedTasks, setParsedTasks] = useState<ParsedTask[]>([])
@@ -143,6 +148,45 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     setText(log?.raw_content || '')
     setInitialLoadDone(true)
   }, [log, loading, targetDate])
+
+  // 게스트 모드: localStorage 드래프트 복원
+  const postLoginSaveRef = useRef(false)
+  useEffect(() => {
+    if (isGuest && !loading) {
+      try {
+        const raw = localStorage.getItem(GUEST_DRAFT_KEY)
+        if (raw) {
+          const draft = JSON.parse(raw)
+          if (draft.text) {
+            setText(draft.text)
+            setInitialLoadDone(true)
+          }
+        }
+      } catch { /* ignore */ }
+    }
+  }, [isGuest, loading])
+
+  // 포스트 로그인: 게스트 드래프트가 있으면 자동 저장
+  useEffect(() => {
+    if (user && !postLoginSaveRef.current) {
+      try {
+        const raw = localStorage.getItem(GUEST_DRAFT_KEY)
+        if (raw) {
+          const draft = JSON.parse(raw)
+          if (draft.text) {
+            postLoginSaveRef.current = true
+            setText(draft.text)
+            // 약간의 지연 후 저장 (훅 초기화 대기)
+            setTimeout(() => {
+              saveWithText(draft.text).then(() => {
+                localStorage.removeItem(GUEST_DRAFT_KEY)
+              })
+            }, 500)
+          }
+        }
+      } catch { /* ignore */ }
+    }
+  }, [user])
 
   // 미완료 업무 로딩 (병렬 실행)
   useEffect(() => {
@@ -549,6 +593,24 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   }
 
   const saveWithText = useCallback(async (textToSave: string) => {
+    // 게스트 모드: localStorage에 저장 + 로그인 유도
+    if (!user) {
+      try {
+        localStorage.setItem(GUEST_DRAFT_KEY, JSON.stringify({
+          text: textToSave,
+          date: targetDate,
+          savedAt: new Date().toISOString(),
+        }))
+      } catch { /* ignore */ }
+      setSaving(false)
+      setHasUnsavedChanges(false)
+
+      if (confirm('작성한 내용을 저장하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?\n\n(내용은 임시 저장됩니다)')) {
+        router.push('/login')
+      }
+      return
+    }
+
     try {
       setSaving(true)
       const tasks = parseAllTasks(textToSave)
@@ -600,7 +662,9 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
               auto_matched: true,
               keywords: [projectName],
             })
-            projectMappings[projectName] = newProject.id
+            if (newProject) {
+              projectMappings[projectName] = newProject.id
+            }
           } catch (err) {
             console.error(`프로젝트 "${projectName}" 생성 실패:`, err)
           }
@@ -642,8 +706,21 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const handleQuickAdd = useCallback(async (line: string) => {
     const newText = text ? `${text}\n${line}` : line
     setText(newText)
+
+    if (!user) {
+      // 게스트: 텍스트만 누적 + localStorage 저장 (알럿 없음)
+      try {
+        localStorage.setItem(GUEST_DRAFT_KEY, JSON.stringify({
+          text: newText,
+          date: targetDate,
+          savedAt: new Date().toISOString(),
+        }))
+      } catch { /* ignore */ }
+      return
+    }
+
     await saveWithText(newText)
-  }, [text, saveWithText])
+  }, [text, saveWithText, user, targetDate])
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value)
@@ -708,7 +785,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     }
   }
 
-  if (!initialLoadDone && (loading || carryingOver)) {
+  if (!isGuest && !initialLoadDone && (loading || carryingOver)) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-gray-500">로딩 중...</div>

@@ -9,12 +9,15 @@ import { createClient } from '@/lib/supabase/client'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import { parseAllTasks, formatProjectLine } from '@/lib/parser'
 import type { WorkLog } from '@/lib/mappers'
+import { useRouter } from 'next/navigation'
 import { Button, Card, CardContent, Input, MobileBottomNav, DesktopTabs } from '@/components/UI'
 import { ProjectDetailModal, ProjectDetailPanel } from '@/components/Project'
 
 export default function ProjectsPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const isMobile = useIsMobile()
+  const isGuest = !user
   const {
     createProject,
     updateProject,
@@ -35,15 +38,18 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">로딩 중...</div>
-      </div>
-    )
+  const requireLogin = () => {
+    if (isGuest) {
+      if (confirm('이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
+        router.push('/login')
+      }
+      return true
+    }
+    return false
   }
 
   const handleCreateProject = async () => {
+    if (requireLogin()) return
     if (!newProjectName.trim()) return
     try {
       setCreating(true)
@@ -256,12 +262,33 @@ export default function ProjectsPage() {
               </div>
             </div>
 
-            <Button
-              variant="outline"
-              onClick={() => setShowNewProject(true)}
-            >
-              + 새 프로젝트
-            </Button>
+            <div className="flex items-center gap-2">
+              {isGuest && (
+                <>
+                  <button
+                    onClick={() => router.push('/login')}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors"
+                  >
+                    로그인
+                  </button>
+                  <button
+                    onClick={() => router.push('/signup')}
+                    className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors shadow-sm"
+                  >
+                    시작하기
+                  </button>
+                </>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (requireLogin()) return
+                  setShowNewProject(true)
+                }}
+              >
+                + 새 프로젝트
+              </Button>
+            </div>
           </div>
 
           <DesktopTabs />

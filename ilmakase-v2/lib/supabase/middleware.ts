@@ -35,8 +35,8 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // 보호된 라우트 체크
-  const protectedRoutes = ['/worklog', '/projects', '/review', '/insights', '/home']
+  // 보호된 라우트 체크 (게스트 모드: 모든 메인 탭 열람 허용)
+  const protectedRoutes = ['/insights', '/home']
   const isProtectedRoute = protectedRoutes.some(route =>
     request.nextUrl.pathname.startsWith(route)
   )
