@@ -17,6 +17,24 @@ export interface ProjectWithWorkLogs {
   }
 }
 
+// 고유 업무 기준 stats 계산 (같은 content → 최신 날짜의 상태만 반영)
+function calcUniqueStats(logs: WorkLog[]) {
+  const uniqueByContent = new Map<string, WorkLog>()
+  for (const wl of logs) {
+    const existing = uniqueByContent.get(wl.content)
+    if (!existing || wl.workDate > existing.workDate) {
+      uniqueByContent.set(wl.content, wl)
+    }
+  }
+  const uniqueLogs = Array.from(uniqueByContent.values())
+  const completedTasks = uniqueLogs.filter(l => l.isCompleted).length
+  return {
+    totalTasks: uniqueLogs.length,
+    completedTasks,
+    completionRate: uniqueLogs.length > 0 ? Math.round((completedTasks / uniqueLogs.length) * 100) : 0,
+  }
+}
+
 export function useProjectWorkLogs() {
   const { user } = useAuth()
   const [projectWorkLogs, setProjectWorkLogs] = useState<ProjectWithWorkLogs[]>([])
@@ -77,15 +95,10 @@ export function useProjectWorkLogs() {
 
       for (const project of projects) {
         const logs = groupedByProject.get(project.id) || []
-        const completedTasks = logs.filter(l => l.isCompleted).length
         result.push({
           project,
           workLogs: logs,
-          stats: {
-            totalTasks: logs.length,
-            completedTasks,
-            completionRate: logs.length > 0 ? Math.round((completedTasks / logs.length) * 100) : 0,
-          },
+          stats: calcUniqueStats(logs),
         })
         groupedByProject.delete(project.id)
       }
@@ -96,15 +109,10 @@ export function useProjectWorkLogs() {
         uncategorized.push(...logs)
       }
       if (uncategorized.length > 0) {
-        const completedTasks = uncategorized.filter(l => l.isCompleted).length
         result.push({
           project: null,
           workLogs: uncategorized,
-          stats: {
-            totalTasks: uncategorized.length,
-            completedTasks,
-            completionRate: Math.round((completedTasks / uncategorized.length) * 100),
-          },
+          stats: calcUniqueStats(uncategorized),
         })
       }
 
@@ -144,19 +152,14 @@ export function useProjectWorkLogs() {
     const mapped = mapWorkLog(data)
 
     // 로컬 상태 업데이트
-    setProjectWorkLogs(prev => prev.map(group => ({
-      ...group,
-      workLogs: group.workLogs.map(wl => wl.id === id ? mapped : wl),
-      stats: {
-        ...group.stats,
-        completedTasks: group.workLogs.map(wl => wl.id === id ? mapped : wl).filter(wl => wl.isCompleted).length,
-        completionRate: (() => {
-          const logs = group.workLogs.map(wl => wl.id === id ? mapped : wl)
-          const completed = logs.filter(wl => wl.isCompleted).length
-          return logs.length > 0 ? Math.round((completed / logs.length) * 100) : 0
-        })(),
-      },
-    })))
+    setProjectWorkLogs(prev => prev.map(group => {
+      const updatedLogs = group.workLogs.map(wl => wl.id === id ? mapped : wl)
+      return {
+        ...group,
+        workLogs: updatedLogs,
+        stats: calcUniqueStats(updatedLogs),
+      }
+    }))
 
     // 캐시 무효화
     dataCache.invalidate(cacheKeys.projectWorkLogs(user.id))
@@ -180,15 +183,10 @@ export function useProjectWorkLogs() {
     // 로컬 상태 업데이트
     setProjectWorkLogs(prev => prev.map(group => {
       const filteredLogs = group.workLogs.filter(wl => wl.id !== id)
-      const completedTasks = filteredLogs.filter(wl => wl.isCompleted).length
       return {
         ...group,
         workLogs: filteredLogs,
-        stats: {
-          totalTasks: filteredLogs.length,
-          completedTasks,
-          completionRate: filteredLogs.length > 0 ? Math.round((completedTasks / filteredLogs.length) * 100) : 0,
-        },
+        stats: calcUniqueStats(filteredLogs),
       }
     }).filter(group => group.workLogs.length > 0 || group.project !== null))
 
