@@ -40,7 +40,7 @@ interface LocalTaskStatus {
   subtasks?: Subtask[] | null
 }
 
-// 마감일 뱃지 표시용 헬퍼
+// 마감일 뱃지 표시용 헬퍼 (D-day 카운트다운)
 function getDueDateDisplay(dueDate: string, isCompleted: boolean): { label: string; className: string } | null {
   if (isCompleted) return null
 
@@ -51,15 +51,18 @@ function getDueDateDisplay(dueDate: string, isCompleted: boolean): { label: stri
   const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 
   if (diffDays < 0) {
-    return { label: '지남', className: 'text-red-500' }
+    return { label: `D+${Math.abs(diffDays)} 지남`, className: 'text-red-500' }
   }
   if (diffDays === 0) {
-    return { label: '오늘까지', className: 'text-amber-500' }
+    return { label: '오늘까지', className: 'text-amber-600' }
   }
-  // M/D 형식
-  const month = due.getMonth() + 1
-  const day = due.getDate()
-  return { label: `${month}/${day}까지`, className: 'text-gray-400' }
+  if (diffDays === 1) {
+    return { label: '내일까지', className: 'text-amber-500' }
+  }
+  if (diffDays <= 3) {
+    return { label: `D-${diffDays}`, className: 'text-amber-400' }
+  }
+  return { label: `D-${diffDays}`, className: 'text-gray-400' }
 }
 
 // 사고 체크리스트 질문

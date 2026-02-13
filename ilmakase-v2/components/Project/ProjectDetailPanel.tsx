@@ -20,18 +20,18 @@ interface ProjectDetailPanelProps {
   onBack?: () => void // 모바일용
 }
 
-// 마감일 뱃지
+// 마감일 뱃지 (D-day 카운트다운)
 function getDueDateDisplay(dueDate: string, isCompleted: boolean): { label: string; className: string } | null {
   if (isCompleted) return null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const due = new Date(dueDate + 'T00:00:00')
   const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-  if (diffDays < 0) return { label: '지남', className: 'text-red-500 bg-red-50' }
+  if (diffDays < 0) return { label: `D+${Math.abs(diffDays)} 지남`, className: 'text-red-500 bg-red-50' }
   if (diffDays === 0) return { label: '오늘까지', className: 'text-amber-600 bg-amber-50' }
-  const month = due.getMonth() + 1
-  const day = due.getDate()
-  return { label: `${month}/${day}까지`, className: 'text-gray-500 bg-gray-100' }
+  if (diffDays === 1) return { label: '내일까지', className: 'text-amber-500 bg-amber-50' }
+  if (diffDays <= 3) return { label: `D-${diffDays}`, className: 'text-amber-500 bg-amber-50' }
+  return { label: `D-${diffDays}`, className: 'text-gray-500 bg-gray-100' }
 }
 
 // 날짜 포맷
