@@ -47,22 +47,22 @@ function getDueDateDisplay(dueDate: string, isCompleted: boolean): { label: stri
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const due = new Date(dueDate + 'T00:00:00')
-
   const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  const dateStr = `${due.getMonth() + 1}/${due.getDate()}`
 
   if (diffDays < 0) {
-    return { label: `D+${Math.abs(diffDays)} 지남`, className: 'text-red-500' }
+    return { label: `D+${Math.abs(diffDays)} 지남(${dateStr})`, className: 'text-red-500' }
   }
   if (diffDays === 0) {
     return { label: '오늘까지', className: 'text-amber-600' }
   }
   if (diffDays === 1) {
-    return { label: '내일까지', className: 'text-amber-500' }
+    return { label: `내일까지(${dateStr})`, className: 'text-amber-500' }
   }
-  if (diffDays <= 3) {
-    return { label: `D-${diffDays}`, className: 'text-amber-400' }
+  if (diffDays <= 6) {
+    return { label: `D-${diffDays}(${dateStr})`, className: diffDays <= 3 ? 'text-amber-400' : 'text-gray-400' }
   }
-  return { label: `D-${diffDays}`, className: 'text-gray-400' }
+  return { label: `${dateStr}까지`, className: 'text-gray-400' }
 }
 
 // 사고 체크리스트 질문
