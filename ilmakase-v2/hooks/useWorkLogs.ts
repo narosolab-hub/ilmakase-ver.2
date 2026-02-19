@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from './useAuth'
-import { dataCache, cacheKeys } from '@/lib/cache'
+import { dataCache, storageCache, cacheKeys } from '@/lib/cache'
 import { mapWorkLog, mapWorkLogToDB, type WorkLog } from '@/lib/mappers'
-import type { ParsedTask, Subtask } from '@/types'
+import type { ParsedTask, Subtask, Memo } from '@/types'
 import type { Json } from '@/types/database'
 
 // 세부 업무 기반 진척도 계산
@@ -47,16 +47,24 @@ export function useWorkLogs(targetDate: string) {
       return
     }
 
-    // 캐시에서 즉시 표시
     const cacheKey = cacheKeys.workLogs(user.id, targetDate)
-    const cached = dataCache.getImmediate<WorkLog[]>(cacheKey)
-    if (cached && cached.length > 0) {
-      setWorkLogs(cached)
+    const memCached = dataCache.getImmediate<WorkLog[]>(cacheKey)
+
+    if (memCached && memCached.length > 0) {
+      // 메모리 캐시: 탭 전환 시 즉시 표시
+      setWorkLogs(memCached)
       setLoading(false)
+    } else {
+      // localStorage 캐시: 새로고침 후에도 즉시 표시
+      const storageCached = storageCache.get<WorkLog[]>(cacheKey)
+      if (storageCached && storageCached.length > 0) {
+        setWorkLogs(storageCached)
+        setLoading(false)
+      }
     }
 
     try {
-      if (!cached || cached.length === 0) setLoading(true)
+      if (!memCached || memCached.length === 0) setLoading(true)
       const supabase = createClient()
 
       const { data, error } = await supabase
@@ -68,9 +76,10 @@ export function useWorkLogs(targetDate: string) {
 
       if (error) throw error
 
-      // DB → Client 변환 후 캐시 저장
+      // DB → Client 변환 후 메모리 + localStorage 캐시 저장 (10분 TTL)
       const mapped = (data || []).map(mapWorkLog)
       dataCache.set(cacheKey, mapped)
+      storageCache.set(cacheKey, mapped, 10 * 60 * 1000)
       setWorkLogs(mapped)
     } catch (err) {
       setError(err as Error)
@@ -90,7 +99,7 @@ export function useWorkLogs(targetDate: string) {
   const syncFromParsedTasks = useCallback(async (
     tasks: ParsedTask[],
     projectMappings: Record<string, string> = {},
-    carryOverData?: Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null }>
+    carryOverData?: Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null; memos?: Memo[] | null }>
   ) => {
     if (!user) return null
 
@@ -165,41 +174,40 @@ export function useWorkLogs(targetDate: string) {
 
     // 삭제: 어떤 태스크와도 매칭 안 된 기존 로그
     const logsToDelete = existing.filter(l => !matchedLogIds.has(l.id))
-    if (logsToDelete.length > 0) {
-      await supabase
-        .from('work_logs')
-        .delete()
-        .in('id', logsToDelete.map(l => l.id))
-    }
 
     if (tasks.length === 0) {
+      if (logsToDelete.length > 0) {
+        await supabase
+          .from('work_logs')
+          .delete()
+          .in('id', logsToDelete.map(l => l.id))
+      }
       setWorkLogs([])
       return
     }
 
     // 새로 추가: 매칭 안 된 태스크
     const tasksToInsert = tasks.filter((_, i) => !matchedTaskIndices.has(i))
-    if (tasksToInsert.length > 0) {
-      const logsToInsert = tasksToInsert.map(task => {
-        const cacheKey = `${task.project_name}:${task.content}`
-        const carryOver = carryOverData?.get(cacheKey)
-        return {
-          user_id: user.id,
-          project_id: projectMappings[task.project_name] || null,
-          content: task.content,
-          work_date: targetDate,
-          progress: carryOver?.progress ?? 0,
-          is_completed: false,
-          keywords: [task.project_name],
-          detail: carryOver?.detail ?? null,
-          due_date: carryOver?.dueDate ?? null,
-          subtasks: (carryOver?.subtasks ?? null) as unknown as Json,
-        }
-      })
-      await supabase.from('work_logs').insert(logsToInsert)
-    }
+    const logsToInsert = tasksToInsert.map(task => {
+      const cacheKey = `${task.project_name}:${task.content}`
+      const carryOver = carryOverData?.get(cacheKey)
+      return {
+        user_id: user.id,
+        project_id: projectMappings[task.project_name] || null,
+        content: task.content,
+        work_date: targetDate,
+        progress: carryOver?.progress ?? 0,
+        is_completed: false,
+        keywords: [task.project_name],
+        detail: carryOver?.detail ?? null,
+        due_date: carryOver?.dueDate ?? null,
+        subtasks: (carryOver?.subtasks ?? null) as unknown as Json,
+        memos: (carryOver?.memos ?? null) as unknown as Json,
+      }
+    })
 
     // 업데이트: 매칭된 태스크 (content 변경, 프로젝트 변경 등)
+    const updateOps: Promise<unknown>[] = []
     for (let i = 0; i < tasks.length; i++) {
       const log = taskLogPairs.get(i)
       if (!log) continue
@@ -217,12 +225,22 @@ export function useWorkLogs(targetDate: string) {
         if (contentChanged) {
           updates.content = task.content
         }
-        await supabase
-          .from('work_logs')
-          .update(updates)
-          .eq('id', log.id)
+        updateOps.push(
+          Promise.resolve(supabase.from('work_logs').update(updates).eq('id', log.id))
+        )
       }
     }
+
+    // DELETE + INSERT + UPDATE 병렬 실행 (서로 다른 행이므로 안전)
+    await Promise.all([
+      logsToDelete.length > 0
+        ? Promise.resolve(supabase.from('work_logs').delete().in('id', logsToDelete.map(l => l.id)))
+        : Promise.resolve(),
+      logsToInsert.length > 0
+        ? Promise.resolve(supabase.from('work_logs').insert(logsToInsert))
+        : Promise.resolve(),
+      ...updateOps,
+    ])
 
     // 최신 데이터 조회
     const { data: updatedLogs, error } = await supabase
@@ -234,10 +252,11 @@ export function useWorkLogs(targetDate: string) {
 
     if (error) throw error
 
-    // DB → Client 변환 후 캐시 갱신
+    // DB → Client 변환 후 메모리 + localStorage 캐시 갱신
     const mapped = (updatedLogs || []).map(mapWorkLog)
     const cacheKey = cacheKeys.workLogs(user.id, targetDate)
     dataCache.set(cacheKey, mapped)
+    storageCache.set(cacheKey, mapped, 10 * 60 * 1000)
 
     setWorkLogs(mapped)
     return mapped

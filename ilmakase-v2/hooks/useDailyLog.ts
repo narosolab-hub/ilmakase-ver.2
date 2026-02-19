@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from './useAuth'
-import { dataCache, cacheKeys } from '@/lib/cache'
+import { dataCache, storageCache, cacheKeys } from '@/lib/cache'
 
 interface DailyLog {
   id: string
@@ -32,15 +32,22 @@ export function useDailyLog(targetDate: string) {
     }
 
     const cacheKey = cacheKeys.dailyLog(user.id, targetDate)
-    const cached = dataCache.getImmediate<DailyLog>(cacheKey)
+    const memCached = dataCache.getImmediate<DailyLog>(cacheKey)
 
-    // 캐시 있으면 즉시 표시, 없으면 로딩
-    if (cached) {
-      setLog(cached)
+    if (memCached) {
+      // 메모리 캐시: 탭 전환 시 즉시 표시
+      setLog(memCached)
       setLoading(false)
     } else {
-      setLog(null)
-      setLoading(true)
+      // localStorage 캐시: 새로고침 후에도 즉시 표시
+      const storageCached = storageCache.get<DailyLog>(cacheKey)
+      if (storageCached) {
+        setLog(storageCached)
+        setLoading(false)
+      } else {
+        setLog(null)
+        setLoading(true)
+      }
     }
 
     try {
@@ -57,9 +64,10 @@ export function useDailyLog(targetDate: string) {
         throw error
       }
 
-      // 캐시 저장
+      // 메모리 + localStorage 캐시 저장 (10분 TTL)
       if (data) {
         dataCache.set(cacheKey, data)
+        storageCache.set(cacheKey, data, 10 * 60 * 1000)
       }
       setLog(data as DailyLog | null)
     } catch (err) {
@@ -102,9 +110,10 @@ export function useDailyLog(targetDate: string) {
       throw new Error('저장 후 데이터를 가져올 수 없습니다')
     }
 
-    // 캐시 갱신
+    // 메모리 + localStorage 캐시 갱신
     const cacheKey = cacheKeys.dailyLog(user.id, targetDate)
     dataCache.set(cacheKey, data)
+    storageCache.set(cacheKey, data, 10 * 60 * 1000)
 
     setLog(data as DailyLog)
     return data

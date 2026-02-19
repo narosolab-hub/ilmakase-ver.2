@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import type { WorkLog } from '@/lib/mappers'
-import type { Project, Subtask } from '@/types'
+import type { Project, Subtask, Memo } from '@/types'
 import { calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
 import DueDatePicker from '@/components/UI/DueDatePicker'
 import DateMovePicker from '@/components/UI/DateMovePicker'
@@ -36,6 +36,18 @@ function getDueDateDisplay(dueDate: string, isCompleted: boolean): { label: stri
   return { label: `${dateStr}까지`, className: 'text-gray-500 bg-gray-100' }
 }
 
+// 메모/세부업무 날짜 포맷
+function formatEntryDate(dateStr: string): string {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const date = new Date(dateStr + 'T00:00:00')
+  const diff = Math.round((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+  const label = `${date.getMonth() + 1}/${date.getDate()}`
+  if (diff === 0) return `${label} · 오늘`
+  if (diff === 1) return `${label} · 어제`
+  return label
+}
+
 // 날짜 포맷
 function formatDateLabel(dateStr: string): string {
   const today = new Date()
@@ -66,8 +78,11 @@ export default function ProjectDetailPanel({
   onBack,
 }: ProjectDetailPanelProps) {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
-  const [editingMemo, setEditingMemo] = useState<string | null>(null)
-  const [memoText, setMemoText] = useState('')
+  const [addingMemoFor, setAddingMemoFor] = useState<string | null>(null)
+  const [newMemoText, setNewMemoText] = useState('')
+  const [editingMemoKey, setEditingMemoKey] = useState<string | null>(null)
+  const [editMemoText, setEditMemoText] = useState('')
+  const [expandedMemos, setExpandedMemos] = useState<Set<string>>(new Set())
   const [newSubtaskText, setNewSubtaskText] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
@@ -106,15 +121,34 @@ export default function ProjectDetailPanel({
     await onUpdateWorkLog(wl.id, { progress })
   }, [onUpdateWorkLog])
 
-  const handleSaveMemo = useCallback(async (wl: WorkLog) => {
-    await onUpdateWorkLog(wl.id, { detail: memoText || null })
-    setEditingMemo(null)
-  }, [onUpdateWorkLog, memoText])
+  const handleAddMemo = useCallback(async (wl: WorkLog, content: string) => {
+    if (!content.trim()) return
+    const newMemo: Memo = {
+      id: crypto.randomUUID(),
+      content: content.trim(),
+      created_at: wl.workDate,
+    }
+    const updatedMemos = [...(wl.memos || []), newMemo]
+    setAddingMemoFor(null)
+    setNewMemoText('')
+    await onUpdateWorkLog(wl.id, { memos: updatedMemos })
+  }, [onUpdateWorkLog])
 
-  const handleDeleteMemo = useCallback(async (wl: WorkLog) => {
-    await onUpdateWorkLog(wl.id, { detail: null })
-    setEditingMemo(null)
-    setMemoText('')
+  const handleDeleteMemo = useCallback(async (wl: WorkLog, memoId: string) => {
+    const updatedMemos = (wl.memos || []).filter(m => m.id !== memoId)
+    await onUpdateWorkLog(wl.id, {
+      memos: updatedMemos.length > 0 ? updatedMemos : null,
+    })
+  }, [onUpdateWorkLog])
+
+  const handleEditMemoSave = useCallback(async (wl: WorkLog, memoId: string, newContent: string) => {
+    if (!newContent.trim()) return
+    const updatedMemos = (wl.memos || []).map(m =>
+      m.id === memoId ? { ...m, content: newContent.trim() } : m
+    )
+    setEditingMemoKey(null)
+    setEditMemoText('')
+    await onUpdateWorkLog(wl.id, { memos: updatedMemos })
   }, [onUpdateWorkLog])
 
   const handleSetDueDate = useCallback(async (wl: WorkLog, dueDate: string | null) => {
@@ -238,8 +272,10 @@ export default function ProjectDetailPanel({
                   {dueDateDisplay.label}
                 </span>
               )}
-              {wl.detail && !isTaskExpanded && (
-                <span className="text-[11px] text-gray-300">📝</span>
+              {wl.memos && wl.memos.length > 0 && !isTaskExpanded && (
+                <span className="text-[11px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                  메모 {wl.memos.length}
+                </span>
               )}
             </div>
           </div>
@@ -345,6 +381,11 @@ export default function ProjectDetailPanel({
                         st.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'
                       }`}
                     />
+                    {st.created_at && (
+                      <span className="text-[10px] text-gray-300 flex-shrink-0">
+                        {formatEntryDate(st.created_at)}
+                      </span>
+                    )}
                     <button
                       onClick={() => handleDeleteSubtask(wl, st.id)}
                       className="text-gray-300 hover:text-red-400 opacity-0 group-hover/sub:opacity-100 text-xs p-0.5"
@@ -374,37 +415,100 @@ export default function ProjectDetailPanel({
 
             {/* 메모 */}
             <div>
-              <span className="text-[11px] font-semibold text-gray-500 mb-1 block">메모</span>
-              {editingMemo === wl.id ? (
-                <div className="space-y-1.5">
-                  <textarea
-                    value={memoText}
-                    onChange={e => setMemoText(e.target.value)}
-                    rows={3}
-                    className="w-full text-[13px] p-2.5 border border-gray-200 rounded-lg resize-none focus:border-primary-400 focus:outline-none bg-white"
-                    placeholder="메모를 입력하세요"
-                    autoFocus
-                  />
-                  <div className="flex gap-1.5">
-                    <button onClick={() => handleSaveMemo(wl)} className="text-xs px-2.5 py-1 bg-primary-500 text-white rounded-lg hover:bg-primary-600">저장</button>
-                    <button onClick={() => setEditingMemo(null)} className="text-xs px-2.5 py-1 text-gray-500 hover:text-gray-700">취소</button>
-                    {wl.detail && (
-                      <button onClick={() => handleDeleteMemo(wl)} className="text-xs px-2.5 py-1 text-red-400 hover:text-red-500 ml-auto">삭제</button>
-                    )}
+              <span className="text-[11px] font-semibold text-gray-500 mb-2 block">메모</span>
+              <div className="space-y-2">
+                {(wl.memos || []).map(memo => {
+                  const isExpanded = expandedMemos.has(memo.id)
+                  const isLong = memo.content.length > 120 || memo.content.split('\n').length > 3
+                  const memoKey = `${wl.id}:${memo.id}`
+                  const isEditingThis = editingMemoKey === memoKey
+                  return (
+                    <div key={memo.id} className="group bg-gray-50 rounded-lg border border-gray-100 p-2.5">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] text-gray-400">{formatEntryDate(memo.created_at)}</span>
+                        {!isEditingThis && (
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => { setEditingMemoKey(memoKey); setEditMemoText(memo.content) }}
+                              className="text-[11px] text-gray-400 hover:text-primary-500"
+                            >수정</button>
+                            <button
+                              onClick={() => handleDeleteMemo(wl, memo.id)}
+                              className="text-[11px] text-gray-400 hover:text-red-500"
+                            >삭제</button>
+                          </div>
+                        )}
+                      </div>
+                      {isEditingThis ? (
+                        <div className="space-y-1.5">
+                          <textarea
+                            value={editMemoText}
+                            onChange={e => setEditMemoText(e.target.value)}
+                            rows={3}
+                            autoFocus
+                            className="w-full text-[13px] p-2 border border-primary-300 rounded-lg resize-none outline-none bg-white"
+                          />
+                          <div className="flex gap-1.5 justify-end">
+                            <button onClick={() => { setEditingMemoKey(null); setEditMemoText('') }} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">취소</button>
+                            <button
+                              onClick={() => handleEditMemoSave(wl, memo.id, editMemoText)}
+                              disabled={!editMemoText.trim()}
+                              className="text-xs text-white bg-primary-500 hover:bg-primary-600 px-2.5 py-1 rounded-lg disabled:opacity-50"
+                            >저장</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className={`text-[13px] text-gray-600 whitespace-pre-wrap leading-relaxed ${!isExpanded && isLong ? 'line-clamp-3' : ''}`}>
+                            {memo.content}
+                          </p>
+                          {isLong && (
+                            <button
+                              onClick={() => setExpandedMemos(prev => {
+                                const next = new Set(prev)
+                                if (next.has(memo.id)) next.delete(memo.id); else next.add(memo.id)
+                                return next
+                              })}
+                              className="text-[11px] text-primary-500 hover:text-primary-600 mt-1"
+                            >
+                              {isExpanded ? '접기' : '더 보기'}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* 새 메모 추가 */}
+                {addingMemoFor === wl.id ? (
+                  <div className="space-y-1.5">
+                    <textarea
+                      value={newMemoText}
+                      onChange={e => setNewMemoText(e.target.value)}
+                      rows={2}
+                      autoFocus
+                      placeholder="메모를 입력하세요..."
+                      className="w-full text-[13px] p-2.5 border border-gray-200 rounded-lg resize-none outline-none focus:border-primary-400 bg-white"
+                    />
+                    <div className="flex gap-1.5 justify-end">
+                      <button onClick={() => { setAddingMemoFor(null); setNewMemoText('') }} className="text-xs text-gray-500 px-2 py-1">취소</button>
+                      <button
+                        onClick={() => handleAddMemo(wl, newMemoText)}
+                        disabled={!newMemoText.trim()}
+                        className="text-xs text-white bg-primary-500 hover:bg-primary-600 px-2.5 py-1 rounded-lg disabled:opacity-50"
+                      >저장</button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => { setEditingMemo(wl.id); setMemoText(wl.detail || '') }}
-                  className="w-full text-left"
-                >
-                  {wl.detail ? (
-                    <p className="text-[13px] text-gray-600 whitespace-pre-wrap bg-gray-50 border border-gray-100 p-2.5 rounded-lg leading-relaxed">{wl.detail}</p>
-                  ) : (
-                    <p className="text-[13px] text-gray-300 hover:text-gray-400 py-1">+ 메모 추가</p>
-                  )}
-                </button>
-              )}
+                ) : (
+                  <button
+                    onClick={() => setAddingMemoFor(wl.id)}
+                    className="w-full py-1.5 text-[13px] text-gray-400 hover:text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    + 메모 추가
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* 삭제 */}

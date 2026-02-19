@@ -3,6 +3,14 @@ export interface Subtask {
   id: string
   content: string
   is_completed: boolean
+  created_at?: string  // YYYY-MM-DD (optional, 이전 데이터 호환)
+}
+
+// 메모 타입 (여러 개, 날짜 기록)
+export interface Memo {
+  id: string
+  content: string    // 여러 줄 가능
+  created_at: string // YYYY-MM-DD
 }
 
 // 파싱된 태스크 타입
@@ -12,49 +20,6 @@ export interface ParsedTask {
   content: string;
   isCompleted: boolean;
   progress: number;
-}
-
-export interface AIAnalysisResponse {
-  pattern: string;
-  workflow: string;
-  keywords: string[];
-  insight: string;
-}
-
-// 일일 분석 응답
-export interface AIDailyAnalysisResponse {
-  strengths: string[];
-  improvements: string[];
-  suggestions: string[];
-  thinking_type: string;
-}
-
-// AI 업무 확장 제안 (사수 코칭)
-export interface AITaskSuggestion {
-  task: string                    // 원래 업무
-  suggestions: string[]           // 추가로 확인/검토해야 할 것들
-  why?: string                    // 왜 이런 제안을 하는지 (선택)
-}
-
-export interface AICoachingResponse {
-  coaching: AITaskSuggestion[]    // 업무별 코칭
-  overall_tip?: string            // 전체적인 한 마디 (선택)
-}
-
-// 경력기술서 생성 응답
-export interface CareerDocResponse {
-  brief_version: string;
-  detailed_version: string;
-  star_version: {
-    situation: string;
-    task: string;
-    action: string[];
-    result: string[];
-  };
-  thinking_analysis: {
-    type: string;
-    description: string;
-  }[];
 }
 
 // 월간 회고 - AI 사수 피드백

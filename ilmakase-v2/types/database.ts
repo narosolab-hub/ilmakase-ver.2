@@ -14,110 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
-      ai_analyses: {
-        Row: {
-          created_at: string | null
-          id: string
-          insight: string | null
-          pattern: string | null
-          thinking_analysis: Json | null
-          top_keywords: string[] | null
-          user_id: string
-          work_log_ids: string[]
-          workflow: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          insight?: string | null
-          pattern?: string | null
-          thinking_analysis?: Json | null
-          top_keywords?: string[] | null
-          user_id: string
-          work_log_ids: string[]
-          workflow?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          insight?: string | null
-          pattern?: string | null
-          thinking_analysis?: Json | null
-          top_keywords?: string[] | null
-          user_id?: string
-          work_log_ids?: string[]
-          workflow?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_analyses_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       career_documents: {
         Row: {
-          brief_version: string | null
           company_id: string | null
           content: string | null
           created_at: string | null
-          detailed_version: string | null
           id: string
           period_end: string | null
           period_start: string | null
           priority_config: Json | null
-          project_id: string | null
           project_ids: string[] | null
           role: string | null
-          star_version: Json | null
-          task_summary: Json | null
           team_size: string | null
-          thinking_analysis: Json | null
           title: string
           updated_at: string | null
           user_id: string
         }
         Insert: {
-          brief_version?: string | null
           company_id?: string | null
           content?: string | null
           created_at?: string | null
-          detailed_version?: string | null
           id?: string
           period_end?: string | null
           period_start?: string | null
           priority_config?: Json | null
-          project_id?: string | null
           project_ids?: string[] | null
           role?: string | null
-          star_version?: Json | null
-          task_summary?: Json | null
           team_size?: string | null
-          thinking_analysis?: Json | null
           title: string
           updated_at?: string | null
           user_id: string
         }
         Update: {
-          brief_version?: string | null
           company_id?: string | null
           content?: string | null
           created_at?: string | null
-          detailed_version?: string | null
           id?: string
           period_end?: string | null
           period_start?: string | null
           priority_config?: Json | null
-          project_id?: string | null
           project_ids?: string[] | null
           role?: string | null
-          star_version?: Json | null
-          task_summary?: Json | null
           team_size?: string | null
-          thinking_analysis?: Json | null
           title?: string
           updated_at?: string | null
           user_id?: string
@@ -128,13 +66,6 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "career_documents_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
           {
@@ -231,45 +162,36 @@ export type Database = {
           ai_insights: Json | null
           avg_completion_rate: number | null
           created_at: string | null
-          goals_for_next_month: Json | null
           id: string
-          monthly_comparison: Json | null
           project_distribution: Json | null
           total_work_days: number | null
           updated_at: string | null
           user_id: string
           user_reflection: string | null
-          work_type_distribution: Json | null
           year_month: string
         }
         Insert: {
           ai_insights?: Json | null
           avg_completion_rate?: number | null
           created_at?: string | null
-          goals_for_next_month?: Json | null
           id?: string
-          monthly_comparison?: Json | null
           project_distribution?: Json | null
           total_work_days?: number | null
           updated_at?: string | null
           user_id: string
           user_reflection?: string | null
-          work_type_distribution?: Json | null
           year_month: string
         }
         Update: {
           ai_insights?: Json | null
           avg_completion_rate?: number | null
           created_at?: string | null
-          goals_for_next_month?: Json | null
           id?: string
-          monthly_comparison?: Json | null
           project_distribution?: Json | null
           total_work_days?: number | null
           updated_at?: string | null
           user_id?: string
           user_reflection?: string | null
-          work_type_distribution?: Json | null
           year_month?: string
         }
         Relationships: [
@@ -469,6 +391,7 @@ export type Database = {
           id: string
           is_completed: boolean | null
           keywords: string[] | null
+          memos: Json | null
           progress: number | null
           project_id: string | null
           subtasks: Json | null
@@ -486,6 +409,7 @@ export type Database = {
           id?: string
           is_completed?: boolean | null
           keywords?: string[] | null
+          memos?: Json | null
           progress?: number | null
           project_id?: string | null
           subtasks?: Json | null
@@ -503,6 +427,7 @@ export type Database = {
           id?: string
           is_completed?: boolean | null
           keywords?: string[] | null
+          memos?: Json | null
           progress?: number | null
           project_id?: string | null
           subtasks?: Json | null

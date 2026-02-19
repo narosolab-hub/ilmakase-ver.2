@@ -260,6 +260,7 @@ ilmakase.ver2/
 ### 인증
 - Supabase Auth 사용
 - `useAuth()` 훅으로 user 정보 접근
+- **반드시 `getSession()` 사용** — `getUser()`는 매번 Supabase 서버에 네트워크 요청 (~200-500ms 지연). `getSession()`은 로컬스토리지에서 읽어 ~1ms. 첫 로드 병목의 주요 원인이므로 절대 `getUser()`로 바꾸지 말 것
 
 ---
 
@@ -280,43 +281,77 @@ export const cacheKeys = {
 }
 ```
 
-### 캐싱 적용 패턴
-탭 전환 시 로딩 없이 즉시 표시하기 위한 전략:
+### 캐싱 적용 패턴 (SWR: Stale While Revalidate)
+새로고침 후에도 즉시 표시 + 탭 전환 시 로딩 없이 표시:
 
 ```typescript
-// 1. 초기값으로 캐시 데이터 사용
-const [data, setData] = useState(() => {
-  return dataCache.getImmediate<T>(cacheKey) || defaultValue
-})
-
-// 2. fetch 시 캐시 먼저 표시 → 백그라운드에서 최신 데이터 로드
+// fetch 함수 패턴: 메모리 캐시 → localStorage 캐시 → 네트워크 순서
 const fetchData = async () => {
-  const cached = dataCache.getImmediate<T>(cacheKey)
-  if (cached) {
-    setData(cached)
+  const cacheKey = cacheKeys.xxx(user.id, ...)
+
+  // 1. 메모리 캐시 (탭 전환 시)
+  const memCached = dataCache.getImmediate<T>(cacheKey)
+  if (memCached) {
+    setData(memCached)
     setLoading(false)
+  } else {
+    // 2. localStorage 캐시 (새로고침 후에도 즉시 표시)
+    const storageCached = storageCache.get<T>(cacheKey)
+    if (storageCached) {
+      setData(storageCached)
+      setLoading(false)  // 즉시 표시, 백그라운드에서 최신화
+    } else {
+      setLoading(true)
+    }
   }
 
-  // 네트워크 요청
+  // 3. 네트워크 요청 (항상 실행 → 최신 데이터로 갱신)
   const freshData = await supabase.from('table').select('*')
 
-  // 캐시 갱신
+  // 메모리 + localStorage 동시 갱신 (TTL: 10분)
   dataCache.set(cacheKey, freshData)
+  storageCache.set(cacheKey, freshData, 10 * 60 * 1000)
   setData(freshData)
+  setLoading(false)
 }
 
-// 3. 저장 시 캐시도 함께 갱신
+// 저장 시에도 양쪽 캐시 갱신
 const saveData = async (newData) => {
   await supabase.from('table').upsert(newData)
-  dataCache.set(cacheKey, newData)  // 캐시 갱신
+  dataCache.set(cacheKey, newData)
+  storageCache.set(cacheKey, newData, 10 * 60 * 1000)
 }
+```
+
+### Supabase 병렬 요청 패턴
+독립적인 DB 작업은 반드시 `Promise.all`로 병렬화. 순차 실행은 큰 병목:
+
+```typescript
+// 나쁜 예: N개 업무 → N번 순차 await (N * 200ms)
+for (const task of tasks) {
+  await supabase.from('work_logs').update(...).eq('id', task.id)
+}
+
+// 좋은 예: 모두 병렬 실행 (한 번의 라운드트립으로 처리)
+await Promise.all(
+  tasks.map(task =>
+    Promise.resolve(supabase.from('work_logs').update(...).eq('id', task.id))
+  )
+)
+
+// 저장 시: 독립적인 작업은 항상 병렬로
+await Promise.all([
+  saveLog(...),                    // daily_log 저장
+  Promise.all(projects.map(...)),  // 프로젝트 생성/조회
+])
+// 주의: PostgrestFilterBuilder는 Promise 타입 아님 → Promise.resolve()로 래핑 필요
 ```
 
 ### 적용된 훅/컴포넌트
 | 파일 | 캐시 키 | 설명 |
 |------|---------|------|
-| `useDailyLog.ts` | `dailyLog:{userId}:{date}` | 일별 로그 원본 텍스트 |
-| `useWorkLogs.ts` | `workLogs:{userId}:{date}` | 파싱된 업무 목록 |
+| `useDailyLog.ts` | `dailyLog:{userId}:{date}` | 일별 로그 원본 텍스트 (메모리 + localStorage) |
+| `useWorkLogs.ts` | `workLogs:{userId}:{date}` | 파싱된 업무 목록 (메모리 + localStorage) |
 | `WeeklySummary.tsx` | `weeklyStats:{userId}:{weekStart}` | 주간 통계 |
 
 ### 컴포넌트 간 데이터 연동
@@ -350,15 +385,16 @@ if (!initialLoadDone && loading) {
 }
 ```
 
-### 프로젝트/회고 탭 적용 시 참고사항
-1. `cacheKeys`에 새 키 추가
-2. 해당 훅에서 캐시 패턴 적용
-3. 데이터 변경 시 관련 캐시 갱신
+### 새 훅/데이터 추가 시 체크리스트
+1. `cacheKeys`에 새 키 추가 (`lib/cache.ts`)
+2. fetch: 메모리 캐시 → localStorage 캐시 → 네트워크 순서로 적용
+3. 저장/갱신 시: `dataCache.set` + `storageCache.set` 동시 호출 (TTL: 10분)
 4. `initialLoadDone` 패턴으로 첫 로딩만 표시
+5. 독립적인 DB 작업은 `Promise.all`로 병렬화
 
 ---
 
-## 현재 진행 상황 (2026-02-13)
+## 현재 진행 상황 (2026-02-19)
 
 ### 완료
 - [x] 프로젝트 구조 세팅 (ilmakase-v2)
@@ -489,6 +525,12 @@ if (!initialLoadDone && loading) {
   - D-3(2/20), 내일까지(2/20), 오늘까지, D+1 지남(2/13) 등
   - 7일 이상 남은 건 날짜만 표시, 지난 건 D+N 지남(날짜)
   - DailyLogEditor + ProjectDetailPanel 양쪽 적용
+- [x] **데이터 로딩 성능 대폭 개선** (2026-02-19)
+  - `useAuth`: `getUser()` → `getSession()` 교체 (인증 지연 ~400ms 제거)
+  - `useDailyLog` + `useWorkLogs`: localStorage 캐시 추가 (SWR 패턴 — 새로고침 후 즉시 표시)
+  - `syncFromParsedTasks`: DELETE/INSERT/UPDATE 순차 → `Promise.all` 병렬 실행
+  - `saveWithText`: `saveLog` + 프로젝트 생성 순차 → `Promise.all` 병렬 실행
+  - PostgrestFilterBuilder → `Promise.all` 사용 시 `Promise.resolve()` 래핑 필요
 
 ### 진행 예정
 - [ ] (추후) AI 코칭 고도화 후 재도입 검토

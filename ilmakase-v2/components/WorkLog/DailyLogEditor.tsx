@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { parseAllTasks, formatProjectLine } from '@/lib/parser'
-import { ParsedTask, Subtask } from '@/types'
+import { ParsedTask, Subtask, Memo } from '@/types'
 import { useDailyLog } from '@/hooks/useDailyLog'
 import { useWorkLogs, calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
 import { useCarryOver, IncompleteTaskData } from '@/hooks/useCarryOver'
@@ -30,6 +30,7 @@ interface TaskWithDB extends ParsedTask {
   detail?: string | null
   dueDate?: string | null
   subtasks?: Subtask[] | null
+  memos?: Memo[] | null
 }
 
 interface LocalTaskStatus {
@@ -38,6 +39,7 @@ interface LocalTaskStatus {
   detail?: string | null
   dueDate?: string | null
   subtasks?: Subtask[] | null
+  memos?: Memo[] | null
 }
 
 // 마감일 뱃지 표시용 헬퍼 (D-day 카운트다운)
@@ -63,6 +65,18 @@ function getDueDateDisplay(dueDate: string, isCompleted: boolean): { label: stri
     return { label: `D-${diffDays}(${dateStr})`, className: diffDays <= 3 ? 'text-amber-400' : 'text-gray-400' }
   }
   return { label: `${dateStr}까지`, className: 'text-gray-400' }
+}
+
+// 메모/세부업무 날짜 포맷 (M/D · 오늘/어제)
+function formatEntryDate(dateStr: string): string {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const date = new Date(dateStr + 'T00:00:00')
+  const diff = Math.round((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+  const label = `${date.getMonth() + 1}/${date.getDate()}`
+  if (diff === 0) return `${label} · 오늘`
+  if (diff === 1) return `${label} · 어제`
+  return label
 }
 
 // 사고 체크리스트 질문
@@ -95,14 +109,20 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const [showChecklist, setShowChecklist] = useState(false)
   const [fullEditorOpen, setFullEditorOpen] = useState(false)
 
-  // 메모 편집 상태
-  const [editingMemo, setEditingMemo] = useState<string | null>(null)
-  const [memoText, setMemoText] = useState('')
-  const [savingMemo, setSavingMemo] = useState(false)
+  // 메모 상태 (기존 단일 메모 → 메모 목록)
+  const [addingMemoFor, setAddingMemoFor] = useState<string | null>(null)   // workLogId
+  const [newMemoText, setNewMemoText] = useState('')
+  const [editingMemoKey, setEditingMemoKey] = useState<string | null>(null)  // `${workLogId}:${memoId}`
+  const [editMemoText, setEditMemoText] = useState('')
+  const [expandedMemos, setExpandedMemos] = useState<Set<string>>(new Set())
 
   // 세부 업무 추가 상태
   const [addingSubtaskFor, setAddingSubtaskFor] = useState<string | null>(null)
   const [newSubtaskText, setNewSubtaskText] = useState('')
+
+  // 프로젝트 그룹 접기/펼치기 상태
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [expandedCompletedGroups, setExpandedCompletedGroups] = useState<Set<string>>(new Set())
 
   const localStatusCache = useRef<Map<string, LocalTaskStatus>>(new Map())
   const [cacheVersion, setCacheVersion] = useState(0)
@@ -130,7 +150,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       localStatusCache.current.clear()
       dismissedIncompleteRef.current.clear()
       setHasUnsavedChanges(false)
-      setEditingMemo(null)
+      setAddingMemoFor(null)
+      setEditingMemoKey(null)
       setIncompleteTasks([])
     }
   }, [targetDate])
@@ -243,6 +264,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           detail: cachedStatus?.detail ?? matchingLog.detail,
           dueDate: cachedStatus?.dueDate !== undefined ? cachedStatus.dueDate : matchingLog.dueDate,
           subtasks,
+          memos: cachedStatus?.memos !== undefined ? cachedStatus.memos : matchingLog.memos,
         }
       }
 
@@ -257,6 +279,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           detail: cachedStatus.detail,
           dueDate: cachedStatus.dueDate,
           subtasks: cachedStatus.subtasks,
+          memos: cachedStatus.memos,
         }
       }
 
@@ -278,6 +301,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: task.detail,
       dueDate: task.dueDate,
       subtasks: task.subtasks,
+      memos: task.memos,
     })
 
     if (!task.workLogId) {
@@ -310,6 +334,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: task.detail,
       dueDate: task.dueDate,
       subtasks: task.subtasks,
+      memos: task.memos,
     })
 
     if (!task.workLogId) {
@@ -330,60 +355,80 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     }
   }
 
-  const handleStartEditMemo = (task: TaskWithDB) => {
-    setEditingMemo(task.workLogId || null)
-    setMemoText(task.detail || '')
-  }
-
-  const handleSaveMemo = async (task: TaskWithDB) => {
-    if (!task.workLogId) return
-
-    setSavingMemo(true)
+  const handleAddMemo = async (task: TaskWithDB, content: string) => {
+    if (!task.workLogId || !content.trim()) return
+    const newMemo: Memo = {
+      id: crypto.randomUUID(),
+      content: content.trim(),
+      created_at: targetDate,
+    }
+    const updatedMemos = [...(task.memos || []), newMemo]
+    const cacheKey = `${task.project_name}:${task.content}`
+    const existing = localStatusCache.current.get(cacheKey)
+    updateLocalCache(cacheKey, {
+      progress: existing?.progress ?? task.progress,
+      isCompleted: existing?.isCompleted ?? task.isCompleted,
+      detail: existing?.detail ?? task.detail,
+      dueDate: existing?.dueDate !== undefined ? existing.dueDate : task.dueDate,
+      subtasks: existing?.subtasks ?? task.subtasks,
+      memos: updatedMemos,
+    })
+    setAddingMemoFor(null)
+    setNewMemoText('')
     try {
-      const cacheKey = `${task.project_name}:${task.content}`
-      const existing = localStatusCache.current.get(cacheKey)
-      updateLocalCache(cacheKey, {
-        progress: existing?.progress ?? task.progress,
-        isCompleted: existing?.isCompleted ?? task.isCompleted,
-        detail: memoText || null,
-        dueDate: existing?.dueDate !== undefined ? existing.dueDate : task.dueDate,
-        subtasks: existing?.subtasks ?? task.subtasks,
-      })
-
-      await updateWorkLog(task.workLogId, { detail: memoText || null })
-      setEditingMemo(null)
+      await updateWorkLog(task.workLogId, { memos: updatedMemos as unknown as null })
     } catch (err) {
-      console.error('[handleSaveMemo]', err)
-      alert('메모 저장에 실패했습니다.')
-    } finally {
-      setSavingMemo(false)
+      console.error('[handleAddMemo]', err)
+      deleteLocalCache(cacheKey)
     }
   }
 
-  const handleCancelMemo = () => {
-    setEditingMemo(null)
-    setMemoText('')
-  }
-
-  const handleDeleteMemo = async (task: TaskWithDB) => {
+  const handleDeleteMemo = async (task: TaskWithDB, memoId: string) => {
     if (!task.workLogId) return
-    if (!confirm('메모를 삭제하시겠습니까?')) return
-
+    const updatedMemos = (task.memos || []).filter(m => m.id !== memoId)
+    const cacheKey = `${task.project_name}:${task.content}`
+    const existing = localStatusCache.current.get(cacheKey)
+    updateLocalCache(cacheKey, {
+      progress: existing?.progress ?? task.progress,
+      isCompleted: existing?.isCompleted ?? task.isCompleted,
+      detail: existing?.detail ?? task.detail,
+      dueDate: existing?.dueDate !== undefined ? existing.dueDate : task.dueDate,
+      subtasks: existing?.subtasks ?? task.subtasks,
+      memos: updatedMemos.length > 0 ? updatedMemos : null,
+    })
     try {
-      const cacheKey = `${task.project_name}:${task.content}`
-      const existing = localStatusCache.current.get(cacheKey)
-      updateLocalCache(cacheKey, {
-        progress: existing?.progress ?? task.progress,
-        isCompleted: existing?.isCompleted ?? task.isCompleted,
-        detail: null,
-        dueDate: existing?.dueDate !== undefined ? existing.dueDate : task.dueDate,
-        subtasks: existing?.subtasks ?? task.subtasks,
+      await updateWorkLog(task.workLogId, {
+        memos: (updatedMemos.length > 0 ? updatedMemos : null) as unknown as null,
       })
-
-      await updateWorkLog(task.workLogId, { detail: null })
-      setEditingMemo(null)
     } catch (err) {
       console.error('[handleDeleteMemo]', err)
+      deleteLocalCache(cacheKey)
+    }
+  }
+
+  const handleEditMemoSave = async (task: TaskWithDB) => {
+    if (!task.workLogId || !editingMemoKey || !editMemoText.trim()) return
+    const memoId = editingMemoKey.split(':').slice(1).join(':')
+    const updatedMemos = (task.memos || []).map(m =>
+      m.id === memoId ? { ...m, content: editMemoText.trim() } : m
+    )
+    const cacheKey = `${task.project_name}:${task.content}`
+    const existing = localStatusCache.current.get(cacheKey)
+    updateLocalCache(cacheKey, {
+      progress: existing?.progress ?? task.progress,
+      isCompleted: existing?.isCompleted ?? task.isCompleted,
+      detail: existing?.detail ?? task.detail,
+      dueDate: existing?.dueDate !== undefined ? existing.dueDate : task.dueDate,
+      subtasks: existing?.subtasks ?? task.subtasks,
+      memos: updatedMemos,
+    })
+    setEditingMemoKey(null)
+    setEditMemoText('')
+    try {
+      await updateWorkLog(task.workLogId, { memos: updatedMemos as unknown as null })
+    } catch (err) {
+      console.error('[handleEditMemoSave]', err)
+      deleteLocalCache(cacheKey)
     }
   }
 
@@ -398,6 +443,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: existing?.detail ?? task.detail,
       dueDate: newDueDate,
       subtasks: existing?.subtasks ?? task.subtasks,
+      memos: existing?.memos ?? task.memos,
     })
 
     try {
@@ -415,6 +461,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       id: crypto.randomUUID(),
       content: newSubtaskText.trim(),
       is_completed: false,
+      created_at: targetDate,
     }
     const updatedSubtasks = [...(task.subtasks || []), newSubtask]
     const newProgress = calculateProgressFromSubtasks(updatedSubtasks, task.isCompleted)
@@ -426,6 +473,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: task.detail,
       dueDate: task.dueDate,
       subtasks: updatedSubtasks,
+      memos: task.memos,
     })
     setNewSubtaskText('')
     setAddingSubtaskFor(null)
@@ -457,6 +505,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: task.detail,
       dueDate: task.dueDate,
       subtasks: updatedSubtasks,
+      memos: task.memos,
     })
 
     try {
@@ -486,6 +535,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: task.detail,
       dueDate: task.dueDate,
       subtasks: updatedSubtasks.length > 0 ? updatedSubtasks : null,
+      memos: task.memos,
     })
 
     try {
@@ -516,6 +566,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: task.detail,
       dueDate: task.dueDate,
       subtasks: updatedSubtasks,
+      memos: task.memos,
     })
 
     try {
@@ -650,33 +701,39 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       }).length
       const completionRate = tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0
 
-      await saveLog(textToSave, tasks.length, completionRate)
-
-      const projectMappings: Record<string, string> = {}
       const uniqueProjectNames = [...new Set(tasks.map(t => t.project_name))]
 
-      for (const projectName of uniqueProjectNames) {
-        const existingProject = findProjectByName(projectName)
-        if (existingProject) {
-          projectMappings[projectName] = existingProject.id
-        } else {
-          try {
-            const newProject = await createProject(projectName, {
-              auto_matched: true,
-              keywords: [projectName],
-            })
-            if (newProject) {
-              projectMappings[projectName] = newProject.id
+      // saveLog + 프로젝트 조회/생성 병렬 실행
+      const [, projectResults] = await Promise.all([
+        saveLog(textToSave, tasks.length, completionRate),
+        Promise.all(
+          uniqueProjectNames.map(async (projectName) => {
+            const existingProject = findProjectByName(projectName)
+            if (existingProject) {
+              return { name: projectName, id: existingProject.id }
             }
-          } catch (err) {
-            console.error(`프로젝트 "${projectName}" 생성 실패:`, err)
-          }
-        }
+            try {
+              const newProject = await createProject(projectName, {
+                auto_matched: true,
+                keywords: [projectName],
+              })
+              return { name: projectName, id: newProject?.id ?? null }
+            } catch (err) {
+              console.error(`프로젝트 "${projectName}" 생성 실패:`, err)
+              return { name: projectName, id: null }
+            }
+          })
+        ),
+      ])
+
+      const projectMappings: Record<string, string> = {}
+      for (const { name, id } of projectResults) {
+        if (id) projectMappings[name] = id
       }
 
       // localStatusCache를 carryOverData로 변환 (세부 업무/메모/마감일 복사용)
       // 새 task content 기준으로 키를 재매핑
-      const carryOverData = new Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null }>()
+      const carryOverData = new Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null; memos?: Memo[] | null }>()
       for (const task of tasks) {
         const newKey = `${task.project_name}:${task.content}`
         const cached = findCached(task.content, task.project_name)
@@ -686,6 +743,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
             subtasks: cached.subtasks,
             progress: cached.progress,
             dueDate: cached.dueDate,
+            memos: cached.memos,
           })
         }
       }
@@ -743,6 +801,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       detail: task.detail,
       dueDate: task.dueDate,
       subtasks: task.subtasks,
+      memos: task.memos,
     })
     setCacheVersion(v => v + 1)
 
@@ -772,6 +831,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
         detail: task.detail,
         dueDate: task.dueDate,
         subtasks: task.subtasks,
+        memos: task.memos,
       })
     })
     setCacheVersion(v => v + 1)
@@ -801,111 +861,92 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const maxProgress = tasksWithDBStatus.length * 100
   const overallProgressRate = maxProgress > 0 ? Math.round((totalProgress / maxProgress) * 100) : 0
 
-  // 업무 카드 목록 (모바일/데스크톱 공용)
-  const renderTaskCards = () => (
-    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-      {tasksWithDBStatus.length === 0 && (
-        <div className="h-64 flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-            <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <p className="text-gray-500 text-sm">
-            {isMobile ? '하단 입력 바에서 업무를 추가하세요' : '오늘의 업무를 입력해보세요'}
-          </p>
-          <p className="text-gray-400 text-xs mt-1">#프로젝트명/ 업무내용</p>
-        </div>
-      )}
-
-      {tasksWithDBStatus.map((task, idx) => (
-        <div
-          key={`${task.project_name}:${task.content}:${idx}`}
-          className={`bg-white rounded-xl border transition-all cursor-pointer overflow-hidden ${
-            selectedTask === task.lineIndex
-              ? 'border-primary-400 shadow-md ring-1 ring-primary-100'
-              : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-          }`}
-          onClick={() => setSelectedTask(selectedTask === task.lineIndex ? null : task.lineIndex)}
-        >
-          <div className="p-3.5">
-            <div className="flex items-start gap-3">
-              {/* 체크박스 */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleCheckboxToggle(task)
-                }}
-                className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition ${
-                  task.isCompleted
-                    ? 'bg-emerald-500 border-emerald-500'
-                    : 'border-gray-300 hover:border-primary-400'
-                }`}
-              >
-                {task.isCompleted && (
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </button>
-
-              {/* 내용 */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className="text-xs font-medium text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded">
-                    #{task.project_name}
-                  </span>
-                  {!task.isCompleted && task.progress > 0 && (
-                    <span className="text-xs text-gray-500">
-                      {task.progress}%
-                    </span>
-                  )}
-                  {task.subtasks && task.subtasks.length > 0 && (
-                    <span className="text-xs text-gray-400">
-                      {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length}
-                    </span>
-                  )}
-                  {task.dueDate && (() => {
-                    const display = getDueDateDisplay(task.dueDate, task.isCompleted)
-                    if (!display) return null
-                    return (
-                      <span className={`text-xs flex items-center gap-0.5 ${display.className}`}>
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        {display.label}
-                      </span>
-                    )
-                  })()}
-                  {task.detail && (
-                    <span className="text-xs text-gray-400 flex items-center gap-0.5">
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                      </svg>
-                      메모
-                    </span>
-                  )}
-                </div>
-                <p className={`text-sm leading-relaxed ${
-                  task.isCompleted ? 'text-gray-400 line-through' : 'text-gray-700'
-                }`}>
-                  {task.content}
-                </p>
-              </div>
-
-              {/* 펼침 아이콘 */}
-              <svg
-                className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${
-                  selectedTask === task.lineIndex ? 'rotate-180' : ''
-                }`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+  // 업무 카드 단일 렌더 (그룹 내부에서 재사용)
+  const renderTaskCard = (task: TaskWithDB, idx: number) => (
+    <div
+      key={`${task.project_name}:${task.content}:${idx}`}
+      className={`bg-white rounded-xl border transition-all cursor-pointer overflow-hidden ${
+        selectedTask === task.lineIndex
+          ? 'border-primary-400 shadow-md ring-1 ring-primary-100'
+          : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+      }`}
+      onClick={() => setSelectedTask(selectedTask === task.lineIndex ? null : task.lineIndex)}
+    >
+      <div className="p-3.5">
+        <div className="flex items-start gap-3">
+          {/* 체크박스 */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleCheckboxToggle(task)
+            }}
+            className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition ${
+              task.isCompleted
+                ? 'bg-emerald-500 border-emerald-500'
+                : 'border-gray-300 hover:border-primary-400'
+            }`}
+          >
+            {task.isCompleted && (
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
               </svg>
+            )}
+          </button>
+
+          {/* 내용 */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              {!task.isCompleted && task.progress > 0 && (
+                <span className="text-xs text-gray-500">
+                  {task.progress}%
+                </span>
+              )}
+              {task.subtasks && task.subtasks.length > 0 && (
+                <span className="text-xs text-gray-400">
+                  {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length}
+                </span>
+              )}
+              {task.dueDate && (() => {
+                const display = getDueDateDisplay(task.dueDate, task.isCompleted)
+                if (!display) return null
+                return (
+                  <span className={`text-xs flex items-center gap-0.5 ${display.className}`}>
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {display.label}
+                  </span>
+                )
+              })()}
+              {task.memos && task.memos.length > 0 && (
+                <span className="text-xs text-gray-400 flex items-center gap-0.5">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                  </svg>
+                  메모 {task.memos.length}
+                </span>
+              )}
             </div>
+            <p className={`text-sm leading-relaxed ${
+              task.isCompleted ? 'text-gray-400 line-through' : 'text-gray-700'
+            }`}>
+              {task.content}
+            </p>
           </div>
+
+          {/* 펼침 아이콘 */}
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${
+              selectedTask === task.lineIndex ? 'rotate-180' : ''
+            }`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
 
           {/* 상세 영역 */}
           {selectedTask === task.lineIndex && (
@@ -1024,6 +1065,11 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                           subtask.is_completed ? 'text-gray-400 line-through' : 'text-gray-700'
                         }`}
                       />
+                      {subtask.created_at && (
+                        <span className="text-[10px] text-gray-300 flex-shrink-0">
+                          {formatEntryDate(subtask.created_at)}
+                        </span>
+                      )}
                       <button
                         onClick={() => handleDeleteSubtask(task, subtask.id)}
                         className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
@@ -1087,70 +1133,87 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
 
               {/* 메모 영역 */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-medium text-gray-700">
-                    메모
-                  </label>
-                  {task.detail && editingMemo !== task.workLogId && (
+                <label className="block text-xs font-medium text-gray-700 mb-2">메모</label>
+                <div className="space-y-2">
+                  {(task.memos || []).map(memo => {
+                    const isExpanded = expandedMemos.has(memo.id)
+                    const isLong = memo.content.length > 120 || memo.content.split('\n').length > 3
+                    const isEditingThis = editingMemoKey === `${task.workLogId}:${memo.id}`
+                    return (
+                      <div key={memo.id} className="group bg-white rounded-lg border border-gray-100 p-2.5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] text-gray-400">{formatEntryDate(memo.created_at)}</span>
+                          {!isEditingThis && (
+                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => { setEditingMemoKey(`${task.workLogId}:${memo.id}`); setEditMemoText(memo.content) }}
+                                className="text-[11px] text-gray-400 hover:text-primary-500"
+                              >수정</button>
+                              <button
+                                onClick={() => handleDeleteMemo(task, memo.id)}
+                                className="text-[11px] text-gray-400 hover:text-red-500"
+                              >삭제</button>
+                            </div>
+                          )}
+                        </div>
+                        {isEditingThis ? (
+                          <div className="space-y-1.5">
+                            <textarea
+                              value={editMemoText}
+                              onChange={e => setEditMemoText(e.target.value)}
+                              rows={3}
+                              autoFocus
+                              className="w-full text-sm p-2 border border-primary-300 rounded-lg resize-none outline-none bg-white"
+                            />
+                            <div className="flex gap-1.5 justify-end">
+                              <button onClick={() => { setEditingMemoKey(null); setEditMemoText('') }} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">취소</button>
+                              <button onClick={() => handleEditMemoSave(task)} disabled={!editMemoText.trim()} className="text-xs text-white bg-primary-500 hover:bg-primary-600 px-2.5 py-1 rounded-lg disabled:opacity-50">저장</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className={`text-sm text-gray-600 whitespace-pre-wrap leading-relaxed ${!isExpanded && isLong ? 'line-clamp-3' : ''}`}>
+                              {memo.content}
+                            </p>
+                            {isLong && (
+                              <button
+                                onClick={() => setExpandedMemos(prev => { const next = new Set(prev); if (next.has(memo.id)) next.delete(memo.id); else next.add(memo.id); return next })}
+                                className="text-[11px] text-primary-500 hover:text-primary-600 mt-1"
+                              >
+                                {isExpanded ? '접기' : '더 보기'}
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {/* 새 메모 추가 */}
+                  {addingMemoFor === task.workLogId ? (
+                    <div className="space-y-1.5" onClick={e => e.stopPropagation()}>
+                      <textarea
+                        value={newMemoText}
+                        onChange={e => setNewMemoText(e.target.value)}
+                        rows={2}
+                        autoFocus
+                        placeholder="메모를 입력하세요..."
+                        className="w-full text-sm p-2.5 border border-gray-200 rounded-lg resize-none outline-none focus:border-primary-400 bg-white"
+                      />
+                      <div className="flex gap-1.5 justify-end">
+                        <button onClick={() => { setAddingMemoFor(null); setNewMemoText('') }} className="text-xs text-gray-500 px-2 py-1">취소</button>
+                        <button onClick={() => handleAddMemo(task, newMemoText)} disabled={!newMemoText.trim()} className="text-xs text-white bg-primary-500 hover:bg-primary-600 px-2.5 py-1 rounded-lg disabled:opacity-50">저장</button>
+                      </div>
+                    </div>
+                  ) : (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteMemo(task)
-                      }}
-                      className="text-xs text-gray-400 hover:text-red-500"
+                      onClick={(e) => { e.stopPropagation(); setAddingMemoFor(task.workLogId || null) }}
+                      className="w-full py-2 text-sm text-gray-400 hover:text-gray-500 bg-white rounded-lg hover:bg-gray-100 transition-colors"
                     >
-                      삭제
+                      + 메모 추가
                     </button>
                   )}
                 </div>
-
-                {editingMemo === task.workLogId ? (
-                  <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                    <textarea
-                      value={memoText}
-                      onChange={(e) => setMemoText(e.target.value)}
-                      placeholder="메모를 입력하세요..."
-                      className="w-full p-3 text-sm border border-gray-200 rounded-lg outline-none ring-0 focus:border-primary-400 resize-none bg-white transition-colors"
-                      rows={2}
-                      autoFocus
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={handleCancelMemo}
-                        className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
-                      >
-                        취소
-                      </button>
-                      <button
-                        onClick={() => handleSaveMemo(task)}
-                        disabled={savingMemo}
-                        className="px-3 py-1.5 text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-lg disabled:opacity-50"
-                      >
-                        {savingMemo ? '저장 중...' : '저장'}
-                      </button>
-                    </div>
-                  </div>
-                ) : task.detail ? (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleStartEditMemo(task)
-                    }}
-                    className="p-3 bg-white rounded-lg text-sm text-gray-600 cursor-text hover:bg-gray-100 transition-colors whitespace-pre-wrap"
-                  >
-                    {task.detail}
-                  </div>
-                ) : (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleStartEditMemo(task)
-                    }}
-                    className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-500 bg-white rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    + 메모 추가
-                  </button>
-                )}
               </div>
 
               {/* 삭제 */}
@@ -1168,9 +1231,113 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
             </div>
           )}
         </div>
-      ))}
-    </div>
   )
+
+  // 업무 카드 목록 — 프로젝트별 그룹핑 (모바일/데스크톱 공용)
+  const renderTaskCards = () => {
+    if (tasksWithDBStatus.length === 0) {
+      return (
+        <div className="flex-1 overflow-y-auto pr-1">
+          <div className="h-64 flex flex-col items-center justify-center text-center">
+            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+              <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </div>
+            <p className="text-gray-500 text-sm">
+              {isMobile ? '하단 입력 바에서 업무를 추가하세요' : '오늘의 업무를 입력해보세요'}
+            </p>
+            <p className="text-gray-400 text-xs mt-1">#프로젝트명/ 업무내용</p>
+          </div>
+        </div>
+      )
+    }
+
+    // 프로젝트별 그룹핑 (입력 순서 유지, 원본 참조 유지)
+    const groups: { name: string; tasks: TaskWithDB[] }[] = []
+    const groupIndex: Record<string, number> = {}
+    tasksWithDBStatus.forEach((task) => {
+      const name = task.project_name
+      if (groupIndex[name] === undefined) {
+        groupIndex[name] = groups.length
+        groups.push({ name, tasks: [] })
+      }
+      groups[groupIndex[name]].tasks.push(task)
+    })
+
+    return (
+      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+        {groups.map(({ name, tasks }) => {
+          const incompleteTasks = tasks.filter(t => !t.isCompleted)
+          const completedTasks = tasks.filter(t => t.isCompleted)
+          const isCollapsed = collapsedGroups.has(name)
+          const isCompletedExpanded = expandedCompletedGroups.has(name)
+
+          return (
+            <div key={name} className="rounded-xl border border-gray-200 overflow-hidden">
+              {/* 그룹 헤더 */}
+              <button
+                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+                onClick={() => setCollapsedGroups(prev => {
+                  const next = new Set(prev)
+                  if (next.has(name)) next.delete(name); else next.add(name)
+                  return next
+                })}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-primary-600">#{name}</span>
+                  <span className="text-xs text-gray-400">
+                    {completedTasks.length}/{tasks.length}
+                  </span>
+                </div>
+                <svg
+                  className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* 그룹 내용 */}
+              {!isCollapsed && (
+                <div className="p-2 space-y-2 bg-white">
+                  {/* 미완료 업무 */}
+                  {incompleteTasks.map((task) => renderTaskCard(task, task.lineIndex))}
+
+                  {/* 완료 업무 아코디언 */}
+                  {completedTasks.length > 0 && (
+                    <div>
+                      <button
+                        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                        onClick={() => setExpandedCompletedGroups(prev => {
+                          const next = new Set(prev)
+                          if (next.has(name)) next.delete(name); else next.add(name)
+                          return next
+                        })}
+                      >
+                        <svg
+                          className={`w-3 h-3 transition-transform ${isCompletedExpanded ? 'rotate-180' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        완료 {completedTasks.length}개
+                      </button>
+                      {isCompletedExpanded && (
+                        <div className="space-y-2 mt-1">
+                          {completedTasks.map((task) => renderTaskCard(task, task.lineIndex))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
 
   // 사고 체크리스트 (모바일/데스크톱 공용)
   const renderChecklist = () => (

@@ -10,7 +10,7 @@
  */
 
 import type { Database } from '@/types/database'
-import type { Subtask } from '@/types'
+import type { Subtask, Memo } from '@/types'
 
 // ============================================
 // WorkLog
@@ -21,7 +21,6 @@ type WorkLogDB = Database['public']['Tables']['work_logs']['Row']
 export interface WorkLog {
   id: string
   userId: string
-  taskId: string | null
   projectId: string | null
   content: string
   detail: string | null
@@ -32,33 +31,40 @@ export interface WorkLog {
   aiAnalysis: unknown | null
   keywords: string[]
   subtasks: Subtask[] | null
+  memos: Memo[] | null
   createdAt: string
   updatedAt: string
 }
 
-export const mapWorkLog = (db: WorkLogDB): WorkLog => ({
-  id: db.id,
-  userId: db.user_id,
-  taskId: db.task_id,
-  projectId: db.project_id,
-  content: db.content,
-  detail: db.detail,
-  dueDate: db.due_date ?? null,
-  workDate: db.work_date,
-  progress: db.progress ?? 0,
-  isCompleted: db.is_completed ?? false,
-  aiAnalysis: db.ai_analysis,
-  keywords: db.keywords ?? [],
-  subtasks: db.subtasks as Subtask[] | null,
-  createdAt: db.created_at ?? '',
-  updatedAt: db.updated_at ?? '',
-})
+export const mapWorkLog = (db: WorkLogDB): WorkLog => {
+  // memos가 없고 detail이 있으면 detail을 legacy 메모로 자동 변환 (마이그레이션 전 backward compat)
+  let memos = db.memos as Memo[] | null
+  if (!memos && db.detail) {
+    memos = [{ id: 'legacy', content: db.detail, created_at: db.work_date }]
+  }
+  return {
+    id: db.id,
+    userId: db.user_id,
+    projectId: db.project_id,
+    content: db.content,
+    detail: db.detail,
+    dueDate: db.due_date ?? null,
+    workDate: db.work_date,
+    progress: db.progress ?? 0,
+    isCompleted: db.is_completed ?? false,
+    aiAnalysis: db.ai_analysis,
+    keywords: db.keywords ?? [],
+    subtasks: db.subtasks as Subtask[] | null,
+    memos,
+    createdAt: db.created_at ?? '',
+    updatedAt: db.updated_at ?? '',
+  }
+}
 
 export const mapWorkLogToDB = (client: Partial<WorkLog>): Partial<WorkLogDB> => {
   const result: Partial<WorkLogDB> = {}
   if (client.id !== undefined) result.id = client.id
   if (client.userId !== undefined) result.user_id = client.userId
-  if (client.taskId !== undefined) result.task_id = client.taskId
   if (client.projectId !== undefined) result.project_id = client.projectId
   if (client.content !== undefined) result.content = client.content
   if (client.detail !== undefined) result.detail = client.detail
@@ -69,6 +75,7 @@ export const mapWorkLogToDB = (client: Partial<WorkLog>): Partial<WorkLogDB> => 
   if (client.aiAnalysis !== undefined) result.ai_analysis = client.aiAnalysis as WorkLogDB['ai_analysis']
   if (client.keywords !== undefined) result.keywords = client.keywords
   if (client.subtasks !== undefined) result.subtasks = client.subtasks as WorkLogDB['subtasks']
+  if (client.memos !== undefined) result.memos = client.memos as WorkLogDB['memos']
   return result
 }
 
@@ -110,7 +117,6 @@ export interface CareerDocumentMapped {
   id: string
   userId: string
   companyId: string | null
-  projectId: string | null
   title: string
   content: string | null
   projectIds: string[]
@@ -126,7 +132,6 @@ export const mapCareerDocument = (db: CareerDocumentDB): CareerDocumentMapped =>
   id: db.id,
   userId: db.user_id,
   companyId: db.company_id ?? null,
-  projectId: db.project_id ?? null,
   title: db.title,
   content: db.content ?? null,
   projectIds: db.project_ids ?? [],

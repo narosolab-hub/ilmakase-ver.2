@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from './useAuth'
 import { dataCache, cacheKeys } from '@/lib/cache'
-import type { Subtask } from '@/types'
+import type { Subtask, Memo } from '@/types'
 
 export interface IncompleteTaskData {
   content: string
@@ -13,6 +13,7 @@ export interface IncompleteTaskData {
   detail: string | null
   dueDate: string | null
   subtasks: Subtask[] | null
+  memos: Memo[] | null
   progress: number
 }
 
@@ -53,11 +54,11 @@ export function useCarryOver() {
       const sevenDaysAgo = new Date(targetDateObj)
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-      // subtasks, detail, due_date도 함께 가져오기
+      // subtasks, detail, due_date, memos도 함께 가져오기
       const [{ data: allWorkLogs }, { data: todayWorkLogs }] = await Promise.all([
         supabase
           .from('work_logs')
-          .select('content, keywords, work_date, progress, is_completed, detail, subtasks, due_date')
+          .select('content, keywords, work_date, progress, is_completed, detail, subtasks, due_date, memos')
           .eq('user_id', user.id)
           .gte('work_date', sevenDaysAgo.toISOString().split('T')[0])
           .lt('work_date', targetDate)
@@ -100,6 +101,11 @@ export function useCarryOver() {
         if (todayContents.has(log.content)) return
 
         if (!uniqueTasks.has(log.content)) {
+          // memos가 없고 detail이 있으면 legacy 메모로 변환
+          let memos = log.memos as Memo[] | null
+          if (!memos && log.detail) {
+            memos = [{ id: 'legacy', content: log.detail, created_at: log.work_date }]
+          }
           uniqueTasks.set(log.content, {
             content: log.content,
             project: log.keywords?.[0] || '기타',
@@ -107,6 +113,7 @@ export function useCarryOver() {
             detail: log.detail,
             dueDate: log.due_date ?? null,
             subtasks: log.subtasks as Subtask[] | null,
+            memos,
             progress: log.progress ?? 0,
           })
         }
