@@ -105,12 +105,13 @@ export function useWorkLogs(targetDate: string) {
 
     const supabase = createClient()
 
-    // 현재 DB에 있는 로그 조회
+    // 현재 DB에 있는 로그 조회 (backlog 제외 — status='backlog'는 syncFromParsedTasks 대상 아님)
     const { data: existingLogs } = await supabase
       .from('work_logs')
       .select('*')
       .eq('user_id', user.id)
       .eq('work_date', targetDate)
+      .is('status', null)
 
     const existing = existingLogs || []
 
