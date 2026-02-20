@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuth } from './useAuth'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import { mapWorkLog, type WorkLog } from '@/lib/mappers'
+import type { Memo } from '@/types'
 
 export function useBacklog() {
   const { user } = useAuth()
@@ -101,6 +102,25 @@ export function useBacklog() {
     dataCache.invalidate(cacheKeys.backlog(user.id))
   }, [user])
 
+  // 백로그 아이템 메모 업데이트
+  const updateBacklogMemo = useCallback(async (id: string, memos: Memo[] | null) => {
+    if (!user) return
+    const supabase = createClient()
+
+    const { error } = await supabase
+      .from('work_logs')
+      .update({ memos: memos as unknown as null })
+      .eq('id', id)
+      .eq('user_id', user.id)
+
+    if (error) throw error
+
+    setBacklogItems(prev => prev.map(item =>
+      item.id === id ? { ...item, memos } : item
+    ))
+    dataCache.invalidate(cacheKeys.backlog(user.id))
+  }, [user])
+
   // 백로그 아이템 삭제
   const deleteBacklog = useCallback(async (id: string) => {
     if (!user) return
@@ -123,6 +143,7 @@ export function useBacklog() {
     loading,
     moveToToday,
     addToBacklog,
+    updateBacklogMemo,
     deleteBacklog,
     reload: fetchBacklog,
   }

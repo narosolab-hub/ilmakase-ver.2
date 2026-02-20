@@ -534,17 +534,20 @@ if (!initialLoadDone && loading) {
 
 - [x] **백로그(나중에 할 일) 기능** (2026-02-20)
   - 미완료 업무 아코디언에 "나중에" 버튼 → work_logs.status = 'backlog'로 이동
-  - "나중에 할 일" 아코디언: 백로그 목록 + "오늘 추가" + 삭제
-  - "오늘 추가": work_date → targetDate, status → null + 텍스트 에디터에 추가
-  - 백로그에 직접 추가 (인라인 입력창)
-  - `hooks/useBacklog.ts` 신규, `hooks/useCarryOver.ts` backlog 필터 + id 포함
+  - 백로그 칩 클릭 → 바텀 시트(모바일) / 센터 모달(데스크톱) 오버레이로 표시
+  - 각 백로그 아이템: 프로젝트명 · 날짜(YY.MM.DD(요일)) + 메모 추가/삭제 기능
+  - "오늘 추가": work_date → targetDate, status → null + 텍스트 에디터에 추가 + 시트 닫기
+  - 백로그에 직접 추가 (시트 하단 인라인 입력창)
+  - `hooks/useBacklog.ts`: `updateBacklogMemo()` 추가 (memos JSONB 업데이트)
+  - `hooks/useCarryOver.ts` backlog 필터 + id 포함
   - DB: `database/migrate-backlog.sql` 실행 필요 (work_logs.status 컬럼)
 
 - [x] **업무 기록 탭 UX 개편** (2026-02-20)
-  - 미완료/백로그 아코디언 → 화면 상단에서 제거, 하단 칩 버튼으로 이동 (클릭 시 드롭다운)
+  - 미완료/백로그 아코디언 → 화면 상단에서 제거, 하단 칩 버튼으로 이동
+  - 미완료: 칩 클릭 시 인라인 드롭다운 / 백로그: 칩 클릭 시 바텀시트/모달
   - 업무 카드에 "나중에" 버튼 추가 (펼쳤을 때 하단, 삭제 버튼 왼쪽)
   - 업무 카드 → 백로그: 텍스트 줄 제거 + DB status 변경 + 백로그 reload
-  - `renderStatusBar()` 함수로 미완료/백로그 통합 (모바일/데스크톱 공용)
+  - `renderStatusBar()` + `renderBacklogOverlay()` 함수 분리 (모바일/데스크톱 공용)
   - 모바일 사고 체크리스트 제거 (데스크톱만 유지)
 
 - [x] **모바일 레이아웃 전면 개편** (2026-02-20)

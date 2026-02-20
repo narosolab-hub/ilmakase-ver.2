@@ -81,6 +81,17 @@ function formatEntryDate(dateStr: string): string {
   return label
 }
 
+// 백로그 날짜 포맷 (YY.MM.DD(요일))
+function formatBacklogDate(dateStr: string): string {
+  const date = new Date(dateStr + 'T00:00:00')
+  const yy = String(date.getFullYear()).slice(-2)
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const days = ['일', '월', '화', '수', '목', '금', '토']
+  const day = days[date.getDay()]
+  return `${yy}.${mm}.${dd}(${day})`
+}
+
 // 사고 체크리스트 질문
 const THINKING_CHECKLIST = [
   { id: 'why', icon: '🎯', question: '왜 해야 하지?', full: '이 업무의 목적과 배경은?' },
@@ -107,7 +118,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const [saving, setSaving] = useState(false)
   const [incompleteTasks, setIncompleteTasks] = useState<IncompleteTaskData[]>([])
   const [showIncomplete, setShowIncomplete] = useState(false)
-  const [showBacklog, setShowBacklog] = useState(false)
+  const [showBacklogSheet, setShowBacklogSheet] = useState(false)
   const [backlogInput, setBacklogInput] = useState('')
   const [addingBacklog, setAddingBacklog] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -922,6 +933,29 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     }
   }
 
+  // 백로그 아이템 메모 상태
+  const [addingMemoForBacklogId, setAddingMemoForBacklogId] = useState<string | null>(null)
+  const [backlogMemoInput, setBacklogMemoInput] = useState('')
+
+  const handleSaveBacklogMemo = async (item: WorkLog) => {
+    const trimmed = backlogMemoInput.trim()
+    if (!trimmed) return
+    const newMemo: Memo = {
+      id: crypto.randomUUID(),
+      content: trimmed,
+      created_at: new Date().toISOString().split('T')[0],
+    }
+    const updatedMemos = [...(item.memos || []), newMemo]
+    setAddingMemoForBacklogId(null)
+    setBacklogMemoInput('')
+    await backlog.updateBacklogMemo(item.id, updatedMemos)
+  }
+
+  const handleDeleteBacklogMemo = async (item: WorkLog, memoId: string) => {
+    const updatedMemos = (item.memos || []).filter(m => m.id !== memoId)
+    await backlog.updateBacklogMemo(item.id, updatedMemos.length > 0 ? updatedMemos : null)
+  }
+
   // 백로그에 직접 추가
   const handleAddToBacklog = async () => {
     if (isGuest) {
@@ -1473,12 +1507,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           )}
           {hasBacklog && (
             <button
-              onClick={() => setShowBacklog(!showBacklog)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                showBacklog
-                  ? 'bg-slate-200 border-slate-300 text-slate-700'
-                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-              }`}
+              onClick={() => setShowBacklogSheet(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors"
             >
               📋 나중에 {backlog.backlogItems.length}개
             </button>
@@ -1523,57 +1553,194 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           </div>
         )}
 
-        {/* 백로그 드롭다운 */}
-        {showBacklog && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-3 py-2 border-b border-slate-100">
-              <span className="text-xs font-semibold text-slate-600">나중에 할 일</span>
-            </div>
-            <div className="px-3 py-2 space-y-1.5 max-h-36 overflow-y-auto">
-              {backlog.backlogItems.length === 0 && (
-                <p className="text-xs text-slate-400 py-1">아직 백로그가 없습니다. 미완료 업무에서 "나중에" 버튼을 눌러보세요.</p>
-              )}
-              {backlog.backlogItems.map((item) => (
-                <div key={item.id} className="flex items-center justify-between text-sm p-2 bg-white rounded-lg border border-slate-100">
-                  <span className="text-gray-700 truncate flex-1">
-                    <span className="text-slate-500 font-medium">#{item.keywords?.[0] || '기타'}</span>{' '}{item.content}
-                  </span>
-                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                    <button
-                      onClick={() => handleMoveBacklogToToday(item)}
-                      className="px-2 py-1 text-xs text-primary-600 hover:bg-primary-50 rounded font-medium"
-                    >
-                      오늘 추가
-                    </button>
-                    <button
-                      onClick={() => backlog.deleteBacklog(item.id)}
-                      className="px-1.5 py-1 text-xs text-red-400 hover:bg-red-50 rounded"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))}
-              <div className="flex gap-1 mt-1">
-                <input
-                  value={backlogInput}
-                  onChange={e => setBacklogInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddToBacklog()}
-                  placeholder="#프로젝트/ 업무내용"
-                  className="flex-1 text-xs px-2 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-slate-400 bg-white"
-                />
-                <button
-                  onClick={handleAddToBacklog}
-                  disabled={addingBacklog || !backlogInput.trim()}
-                  className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-40 border border-slate-200 bg-white"
-                >
-                  추가
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
+    )
+  }
+
+  // 백로그 시트/모달 오버레이 (모바일: 바텀시트, 데스크톱: 모달)
+  const renderBacklogOverlay = () => {
+    if (!showBacklogSheet) return null
+
+    const sheetContent = (
+      <>
+        {/* 헤더 */}
+        <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">나중에 할 일</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{backlog.backlogItems.length}개</p>
+          </div>
+          <button
+            onClick={() => setShowBacklogSheet(false)}
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* 백로그 목록 */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+          {backlog.backlogItems.length === 0 && (
+            <div className="py-10 text-center">
+              <p className="text-sm text-gray-400">아직 백로그가 없습니다.</p>
+              <p className="text-xs text-gray-300 mt-1">미완료 업무에서 "나중에" 버튼을 눌러보세요.</p>
+            </div>
+          )}
+          {backlog.backlogItems.map((item) => (
+            <div key={item.id} className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+              {/* 상단: 프로젝트/날짜 + 오늘추가/삭제 */}
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-xs font-medium text-slate-500">#{item.keywords?.[0] || '기타'}</span>
+                    <span className="text-[10px] text-gray-300">·</span>
+                    <span className="text-[10px] text-gray-400">{formatBacklogDate(item.workDate)}</span>
+                  </div>
+                  <p className="text-sm text-gray-700 leading-snug">{item.content}</p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      handleMoveBacklogToToday(item)
+                      setShowBacklogSheet(false)
+                    }}
+                    className="px-2.5 py-1.5 text-xs font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+                  >
+                    오늘 추가
+                  </button>
+                  <button
+                    onClick={() => backlog.deleteBacklog(item.id)}
+                    className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* 메모 목록 */}
+              {item.memos && item.memos.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {item.memos.map(memo => (
+                    <div key={memo.id} className="flex items-start gap-1.5 group">
+                      <svg className="w-3 h-3 mt-0.5 flex-shrink-0 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                      </svg>
+                      <p className="flex-1 text-xs text-gray-500 leading-relaxed">{memo.content}</p>
+                      <button
+                        onClick={() => handleDeleteBacklogMemo(item, memo.id)}
+                        className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-300 hover:text-red-400 transition-all"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 메모 추가 */}
+              {addingMemoForBacklogId === item.id ? (
+                <div className="mt-2">
+                  <textarea
+                    value={backlogMemoInput}
+                    onChange={e => setBacklogMemoInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSaveBacklogMemo(item)
+                      }
+                      if (e.key === 'Escape') {
+                        setAddingMemoForBacklogId(null)
+                        setBacklogMemoInput('')
+                      }
+                    }}
+                    onBlur={() => {
+                      if (backlogMemoInput.trim()) handleSaveBacklogMemo(item)
+                      else { setAddingMemoForBacklogId(null); setBacklogMemoInput('') }
+                    }}
+                    placeholder="왜 나중으로 미뤘나요?"
+                    rows={2}
+                    autoFocus
+                    className="w-full text-xs px-2.5 py-2 border border-gray-200 rounded-lg resize-none outline-none focus:border-primary-300 bg-white"
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setAddingMemoForBacklogId(item.id); setBacklogMemoInput('') }}
+                  className="mt-2 text-[10px] text-gray-300 hover:text-gray-500 transition-colors"
+                >
+                  + 메모
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* 직접 추가 푸터 */}
+        <div className="flex-shrink-0 px-4 py-3 border-t border-gray-100">
+          <div className="flex gap-2">
+            <input
+              value={backlogInput}
+              onChange={e => setBacklogInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddToBacklog()}
+              placeholder="#프로젝트/ 업무내용"
+              className="flex-1 text-sm px-3 py-2 border border-gray-200 rounded-xl outline-none focus:border-primary-400 bg-white"
+            />
+            <button
+              onClick={handleAddToBacklog}
+              disabled={addingBacklog || !backlogInput.trim()}
+              className="px-3 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-xl disabled:opacity-40 transition-colors"
+            >
+              추가
+            </button>
+          </div>
+        </div>
+      </>
+    )
+
+    if (isMobile) {
+      return (
+        <>
+          {/* 백드롭 */}
+          <div
+            className="fixed inset-0 bg-black/40 z-[70]"
+            onClick={() => setShowBacklogSheet(false)}
+          />
+          {/* 바텀 시트 */}
+          <div
+            className="fixed left-0 right-0 bottom-0 z-[75] bg-white rounded-t-2xl shadow-2xl flex flex-col"
+            style={{ maxHeight: '70vh' }}
+          >
+            {/* 드래그 핸들 */}
+            <div className="flex-shrink-0 flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+            {sheetContent}
+          </div>
+        </>
+      )
+    }
+
+    // 데스크톱: 센터 모달
+    return (
+      <>
+        {/* 백드롭 */}
+        <div
+          className="fixed inset-0 bg-black/40 z-50"
+          onClick={() => setShowBacklogSheet(false)}
+        />
+        {/* 모달 */}
+        <div
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-white rounded-2xl shadow-2xl w-[440px] flex flex-col"
+          style={{ maxHeight: '70vh' }}
+        >
+          {sheetContent}
+        </div>
+      </>
     )
   }
 
@@ -1694,12 +1861,16 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           onAddIncompleteTask={handleAddIncompleteTask}
           onAddAllIncompleteTasks={handleAddAllIncompleteTasks}
         />
+
+        {/* 백로그 바텀 시트 */}
+        {renderBacklogOverlay()}
       </>
     )
   }
 
   // ─── 데스크톱 레이아웃 (기존) ───
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[500px]">
       {/* 왼쪽: 텍스트 입력 */}
       <div className="flex flex-col">
@@ -1791,5 +1962,9 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
         {renderStatusBar()}
       </div>
     </div>
+
+    {/* 백로그 모달 */}
+    {renderBacklogOverlay()}
+    </>
   )
 }
