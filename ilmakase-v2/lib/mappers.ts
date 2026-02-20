@@ -30,6 +30,7 @@ export interface WorkLog {
   isCompleted: boolean
   aiAnalysis: unknown | null
   keywords: string[]
+  status: string | null
   subtasks: Subtask[] | null
   memos: Memo[] | null
   createdAt: string
@@ -54,6 +55,7 @@ export const mapWorkLog = (db: WorkLogDB): WorkLog => {
     isCompleted: db.is_completed ?? false,
     aiAnalysis: db.ai_analysis,
     keywords: db.keywords ?? [],
+    status: db.status ?? null,
     subtasks: db.subtasks as Subtask[] | null,
     memos,
     createdAt: db.created_at ?? '',
@@ -74,6 +76,7 @@ export const mapWorkLogToDB = (client: Partial<WorkLog>): Partial<WorkLogDB> => 
   if (client.isCompleted !== undefined) result.is_completed = client.isCompleted
   if (client.aiAnalysis !== undefined) result.ai_analysis = client.aiAnalysis as WorkLogDB['ai_analysis']
   if (client.keywords !== undefined) result.keywords = client.keywords
+  if (client.status !== undefined) result.status = client.status
   if (client.subtasks !== undefined) result.subtasks = client.subtasks as WorkLogDB['subtasks']
   if (client.memos !== undefined) result.memos = client.memos as WorkLogDB['memos']
   return result

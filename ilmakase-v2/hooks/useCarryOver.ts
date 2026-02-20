@@ -7,6 +7,7 @@ import { dataCache, cacheKeys } from '@/lib/cache'
 import type { Subtask, Memo } from '@/types'
 
 export interface IncompleteTaskData {
+  id: string
   content: string
   project: string
   date: string
@@ -58,7 +59,7 @@ export function useCarryOver() {
       const [{ data: allWorkLogs }, { data: todayWorkLogs }] = await Promise.all([
         supabase
           .from('work_logs')
-          .select('content, keywords, work_date, progress, is_completed, detail, subtasks, due_date, memos')
+          .select('id, content, keywords, work_date, progress, is_completed, detail, subtasks, due_date, memos, status')
           .eq('user_id', user.id)
           .gte('work_date', sevenDaysAgo.toISOString().split('T')[0])
           .lt('work_date', targetDate)
@@ -86,7 +87,8 @@ export function useCarryOver() {
           .map(log => log.content)
       )
 
-      const workLogs = allWorkLogs.filter(log => !log.is_completed)
+      // 백로그 제외: JS에서 필터 (DB migration 전후 모두 안전, NULL != 'backlog' 처리)
+      const workLogs = allWorkLogs.filter(log => !log.is_completed && (log as { status?: string | null }).status !== 'backlog')
 
       if (workLogs.length === 0) {
         dataCache.set(cacheKey, [], 5 * 60 * 1000)
@@ -107,6 +109,7 @@ export function useCarryOver() {
             memos = [{ id: 'legacy', content: log.detail, created_at: log.work_date }]
           }
           uniqueTasks.set(log.content, {
+            id: log.id,
             content: log.content,
             project: log.keywords?.[0] || '기타',
             date: log.work_date,
@@ -130,5 +133,16 @@ export function useCarryOver() {
     }
   }, [user])
 
-  return { getIncompleteTasks, invalidateCache, carryingOver }
+  // 미완료 업무를 백로그로 이동 (status = 'backlog')
+  const moveToBacklog = useCallback(async (id: string) => {
+    if (!user) return
+    const supabase = createClient()
+    await supabase
+      .from('work_logs')
+      .update({ status: 'backlog' })
+      .eq('id', id)
+      .eq('user_id', user.id)
+  }, [user])
+
+  return { getIncompleteTasks, invalidateCache, carryingOver, moveToBacklog }
 }

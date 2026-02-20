@@ -6,6 +6,8 @@ import { ParsedTask, Subtask, Memo } from '@/types'
 import { useDailyLog } from '@/hooks/useDailyLog'
 import { useWorkLogs, calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
 import { useCarryOver, IncompleteTaskData } from '@/hooks/useCarryOver'
+import { useBacklog } from '@/hooks/useBacklog'
+import type { WorkLog } from '@/lib/mappers'
 import { useProjects } from '@/hooks/useProjects'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useAuth } from '@/hooks/useAuth'
@@ -93,7 +95,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const router = useRouter()
   const { log, loading, saveLog } = useDailyLog(targetDate)
   const { workLogs, syncFromParsedTasks, updateWorkLog, deleteWorkLog } = useWorkLogs(targetDate)
-  const { getIncompleteTasks, invalidateCache, carryingOver } = useCarryOver()
+  const { getIncompleteTasks, invalidateCache, carryingOver, moveToBacklog } = useCarryOver()
+  const backlog = useBacklog()
   const { findProjectByName, createProject } = useProjects()
   const isMobile = useIsMobile()
   const isGuest = !user
@@ -104,6 +107,9 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const [saving, setSaving] = useState(false)
   const [incompleteTasks, setIncompleteTasks] = useState<IncompleteTaskData[]>([])
   const [showIncomplete, setShowIncomplete] = useState(false)
+  const [showBacklog, setShowBacklog] = useState(false)
+  const [backlogInput, setBacklogInput] = useState('')
+  const [addingBacklog, setAddingBacklog] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
@@ -848,6 +854,97 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     }
   }
 
+  // 업무 카드 → 백로그로 이동 (텍스트에서 줄 제거 + DB status 변경)
+  const handleTaskCardToBacklog = async (task: TaskWithDB) => {
+    if (isGuest) {
+      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      return
+    }
+    if (!task.workLogId) return
+
+    // 텍스트에서 해당 줄 제거
+    const lines = text.split('\n')
+    const newLines = lines.filter((_, i) => i !== task.lineIndex)
+    const newText = newLines.join('\n')
+    setText(newText)
+
+    await moveToBacklog(task.workLogId)
+    await backlog.reload()
+
+    if (isMobile) {
+      saveWithText(newText)
+    } else {
+      setHasUnsavedChanges(true)
+    }
+  }
+
+  // 미완료 업무 → 백로그로 이동
+  const handleMoveToBacklog = async (task: IncompleteTaskData) => {
+    if (isGuest) {
+      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      return
+    }
+    await moveToBacklog(task.id)
+    dismissedIncompleteRef.current.add(task.content)
+    setIncompleteTasks(prev => prev.filter(t => t.content !== task.content))
+    invalidateCache(targetDate)
+    await backlog.reload()
+  }
+
+  // 백로그 → 오늘로 이동 (텍스트 에디터에 추가 + DB work_date 변경)
+  const handleMoveBacklogToToday = async (item: WorkLog) => {
+    if (isGuest) {
+      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      return
+    }
+    const projectName = item.keywords?.[0] || '기타'
+    const newLine = formatProjectLine(projectName, item.content)
+    const newText = text ? `${text}\n${newLine}` : newLine
+    setText(newText)
+
+    const cacheKey = `${projectName}:${item.content}`
+    localStatusCache.current.set(cacheKey, {
+      progress: item.progress,
+      isCompleted: false,
+      detail: item.detail,
+      dueDate: item.dueDate,
+      subtasks: item.subtasks,
+      memos: item.memos,
+    })
+    setCacheVersion(v => v + 1)
+
+    await backlog.moveToToday(item, targetDate)
+
+    if (isMobile) {
+      saveWithText(newText)
+    } else {
+      setHasUnsavedChanges(true)
+    }
+  }
+
+  // 백로그에 직접 추가
+  const handleAddToBacklog = async () => {
+    if (isGuest) {
+      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      return
+    }
+    const trimmed = backlogInput.trim()
+    if (!trimmed) return
+    setAddingBacklog(true)
+    try {
+      const parsed = parseAllTasks(trimmed)
+      const first = parsed[0]
+      const content = first ? first.content : trimmed
+      const projectName = first ? first.project_name : '기타'
+      await backlog.addToBacklog(content, projectName)
+      setBacklogInput('')
+    } catch (err) {
+      console.error('백로그 추가 실패:', err)
+    } finally {
+      setAddingBacklog(false)
+    }
+  }
+
   if (!isGuest && !initialLoadDone && (loading || carryingOver)) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1216,8 +1313,21 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                 </div>
               </div>
 
-              {/* 삭제 */}
-              <div className="flex justify-end pt-2 border-t border-gray-100">
+              {/* 하단 액션 */}
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                {task.workLogId && !task.isCompleted ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleTaskCardToBacklog(task)
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+                  >
+                    나중에
+                  </button>
+                ) : (
+                  <div />
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
@@ -1237,8 +1347,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const renderTaskCards = () => {
     if (tasksWithDBStatus.length === 0) {
       return (
-        <div className="flex-1 overflow-y-auto pr-1">
-          <div className="h-64 flex flex-col items-center justify-center text-center">
+        <div className={isMobile ? '' : 'flex-1 overflow-y-auto pr-1'}>
+          <div className="h-48 flex flex-col items-center justify-center text-center">
             <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
               <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -1266,7 +1376,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     })
 
     return (
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+      <div className={`space-y-3 ${isMobile ? '' : 'flex-1 overflow-y-auto pr-1'}`}>
         {groups.map(({ name, tasks }) => {
           const incompleteTasks = tasks.filter(t => !t.isCompleted)
           const completedTasks = tasks.filter(t => t.isCompleted)
@@ -1335,6 +1445,134 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
             </div>
           )
         })}
+      </div>
+    )
+  }
+
+  // 미완료 + 백로그 상태바 (하단 배치, 공용)
+  const renderStatusBar = () => {
+    const hasIncomplete = incompleteTasks.length > 0
+    const hasBacklog = backlog.backlogItems.length > 0
+    if (!hasIncomplete && !hasBacklog) return null
+
+    return (
+      <div className="mt-4 space-y-2">
+        {/* 칩 버튼들 */}
+        <div className="flex gap-2 flex-wrap">
+          {hasIncomplete && (
+            <button
+              onClick={() => setShowIncomplete(!showIncomplete)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                showIncomplete
+                  ? 'bg-amber-100 border-amber-300 text-amber-700'
+                  : 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
+              }`}
+            >
+              ⚠️ 미완료 {incompleteTasks.length}개
+            </button>
+          )}
+          {hasBacklog && (
+            <button
+              onClick={() => setShowBacklog(!showBacklog)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                showBacklog
+                  ? 'bg-slate-200 border-slate-300 text-slate-700'
+                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              📋 나중에 {backlog.backlogItems.length}개
+            </button>
+          )}
+        </div>
+
+        {/* 미완료 드롭다운 */}
+        {showIncomplete && hasIncomplete && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-2 flex items-center justify-between border-b border-amber-100">
+              <span className="text-xs font-semibold text-amber-700">미완료 업무</span>
+              <button
+                onClick={handleAddAllIncompleteTasks}
+                className="text-xs text-amber-600 hover:text-amber-800 hover:underline font-medium"
+              >
+                전체 추가
+              </button>
+            </div>
+            <div className="px-3 py-2 space-y-1.5 max-h-36 overflow-y-auto">
+              {incompleteTasks.map((task, idx) => (
+                <div key={idx} className="flex items-center justify-between text-sm p-2 bg-white rounded-lg border border-amber-100">
+                  <span className="text-gray-700 truncate flex-1">
+                    <span className="text-amber-600 font-medium">#{task.project}</span>{' '}{task.content}
+                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                    <button
+                      onClick={() => handleMoveToBacklog(task)}
+                      className="px-2 py-1 text-xs text-gray-400 hover:bg-gray-100 rounded font-medium"
+                    >
+                      나중에
+                    </button>
+                    <button
+                      onClick={() => handleAddIncompleteTask(task)}
+                      className="px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 rounded font-medium"
+                    >
+                      추가
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 백로그 드롭다운 */}
+        {showBacklog && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-2 border-b border-slate-100">
+              <span className="text-xs font-semibold text-slate-600">나중에 할 일</span>
+            </div>
+            <div className="px-3 py-2 space-y-1.5 max-h-36 overflow-y-auto">
+              {backlog.backlogItems.length === 0 && (
+                <p className="text-xs text-slate-400 py-1">아직 백로그가 없습니다. 미완료 업무에서 "나중에" 버튼을 눌러보세요.</p>
+              )}
+              {backlog.backlogItems.map((item) => (
+                <div key={item.id} className="flex items-center justify-between text-sm p-2 bg-white rounded-lg border border-slate-100">
+                  <span className="text-gray-700 truncate flex-1">
+                    <span className="text-slate-500 font-medium">#{item.keywords?.[0] || '기타'}</span>{' '}{item.content}
+                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                    <button
+                      onClick={() => handleMoveBacklogToToday(item)}
+                      className="px-2 py-1 text-xs text-primary-600 hover:bg-primary-50 rounded font-medium"
+                    >
+                      오늘 추가
+                    </button>
+                    <button
+                      onClick={() => backlog.deleteBacklog(item.id)}
+                      className="px-1.5 py-1 text-xs text-red-400 hover:bg-red-50 rounded"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <div className="flex gap-1 mt-1">
+                <input
+                  value={backlogInput}
+                  onChange={e => setBacklogInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddToBacklog()}
+                  placeholder="#프로젝트/ 업무내용"
+                  className="flex-1 text-xs px-2 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-slate-400 bg-white"
+                />
+                <button
+                  onClick={handleAddToBacklog}
+                  disabled={addingBacklog || !backlogInput.trim()}
+                  className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-40 border border-slate-200 bg-white"
+                >
+                  추가
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -1423,75 +1661,11 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           </div>
         )}
 
-        {/* 미완료 업무 아코디언 */}
-        {incompleteTasks.length > 0 && (
-          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
-            <button
-              onClick={() => setShowIncomplete(!showIncomplete)}
-              className="w-full px-4 py-3 flex items-center justify-between hover:bg-amber-100/50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <svg
-                  className={`w-4 h-4 text-amber-600 transition-transform ${showIncomplete ? 'rotate-90' : ''}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                <span className="text-amber-700 text-sm font-semibold">
-                  미완료 업무 {incompleteTasks.length}개
-                </span>
-              </div>
-              {showIncomplete && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleAddAllIncompleteTasks()
-                  }}
-                  className="text-xs text-amber-700 hover:text-amber-800 font-medium hover:underline"
-                >
-                  전체 추가
-                </span>
-              )}
-            </button>
-
-            {showIncomplete && (
-              <div className="px-4 pb-3 space-y-1.5 max-h-40 overflow-y-auto">
-                {incompleteTasks.map((task, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between text-sm p-2 bg-white rounded-lg border border-amber-100"
-                  >
-                    <span className="text-gray-700 truncate flex-1">
-                      <span className="text-amber-600 font-medium">#{task.project}</span>{' '}
-                      {task.content}
-                    </span>
-                    <button
-                      onClick={() => handleAddIncompleteTask(task)}
-                      className="ml-2 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 rounded font-medium flex-shrink-0"
-                    >
-                      추가
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 사고 체크리스트 */}
-        {renderChecklist()}
-
-        {/* 업무 목록 헤더 */}
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900">
-            업무 목록
-          </h3>
-        </div>
-
         {/* 업무 카드 목록 */}
         {renderTaskCards()}
+
+        {/* 미완료 + 백로그 상태바 */}
+        {renderStatusBar()}
 
         {/* 하단 고정 입력 바 */}
         <MobileQuickInput
@@ -1529,63 +1703,6 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[500px]">
       {/* 왼쪽: 텍스트 입력 */}
       <div className="flex flex-col">
-        {/* 미완료 업무 아코디언 */}
-        {incompleteTasks.length > 0 && (
-          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
-            <button
-              onClick={() => setShowIncomplete(!showIncomplete)}
-              className="w-full px-4 py-3 flex items-center justify-between hover:bg-amber-100/50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <svg
-                  className={`w-4 h-4 text-amber-600 transition-transform ${showIncomplete ? 'rotate-90' : ''}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                <span className="text-amber-700 text-sm font-semibold">
-                  미완료 업무 {incompleteTasks.length}개
-                </span>
-              </div>
-              {showIncomplete && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleAddAllIncompleteTasks()
-                  }}
-                  className="text-xs text-amber-700 hover:text-amber-800 font-medium hover:underline"
-                >
-                  전체 추가
-                </span>
-              )}
-            </button>
-
-            {showIncomplete && (
-              <div className="px-4 pb-3 space-y-1.5 max-h-32 overflow-y-auto">
-                {incompleteTasks.map((task, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between text-sm p-2 bg-white rounded-lg border border-amber-100"
-                  >
-                    <span className="text-gray-700 truncate flex-1">
-                      <span className="text-amber-600 font-medium">#{task.project}</span>{' '}
-                      {task.content}
-                    </span>
-                    <button
-                      onClick={() => handleAddIncompleteTask(task)}
-                      className="ml-2 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 rounded font-medium flex-shrink-0"
-                    >
-                      추가
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-medium text-gray-700">
             오늘의 업무
@@ -1669,6 +1786,9 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
             )}
           </div>
         )}
+
+        {/* 미완료 + 백로그 상태바 */}
+        {renderStatusBar()}
       </div>
     </div>
   )

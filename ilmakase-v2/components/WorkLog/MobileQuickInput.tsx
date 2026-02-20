@@ -13,12 +13,11 @@ export default function MobileQuickInput({ onSubmit, onExpand, disabled, visible
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // auto-grow (최대 3줄 ~= 72px)
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 72) + 'px'
+    el.style.height = Math.min(el.scrollHeight, 80) + 'px'
   }, [])
 
   useEffect(() => {
@@ -30,7 +29,6 @@ export default function MobileQuickInput({ onSubmit, onExpand, disabled, visible
     if (!trimmed || disabled) return
     onSubmit(trimmed)
     setValue('')
-    // reset height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -45,24 +43,34 @@ export default function MobileQuickInput({ onSubmit, onExpand, disabled, visible
 
   if (!visible) return null
 
+  const hasValue = value.trim().length > 0
+
   return (
     <div
-      className="fixed left-0 right-0 z-50 bg-white border-t border-gray-200 px-3 py-2"
-      style={{ bottom: 48 }}
+      className="fixed left-0 right-0 z-50 bg-white px-3 py-2"
+      style={{
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 48px)',
+        boxShadow: '0 -1px 0 0 rgba(0,0,0,0.06), 0 -4px 12px rgba(0,0,0,0.04)',
+      }}
     >
-      <div className="flex items-end gap-2">
-        {/* 확장 버튼 */}
+      <div className="flex items-end gap-2 bg-gray-100 rounded-2xl px-3 py-1.5">
+        {/* 전체 편집 버튼 — 연필 아이콘 */}
         <button
           onClick={onExpand}
-          className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+          className="flex-shrink-0 text-gray-400 hover:text-primary-500 transition-colors pb-1"
           title="전체 편집"
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+          <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.8}
+              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+            />
           </svg>
         </button>
 
-        {/* 입력 */}
+        {/* 텍스트 입력 */}
         <textarea
           ref={textareaRef}
           value={value}
@@ -71,18 +79,22 @@ export default function MobileQuickInput({ onSubmit, onExpand, disabled, visible
           disabled={disabled}
           placeholder="#프로젝트/ 업무내용"
           rows={1}
-          className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl outline-none focus:border-primary-400 resize-none bg-white transition-colors disabled:opacity-50"
-          style={{ maxHeight: 72 }}
+          className="flex-1 bg-transparent text-sm outline-none resize-none py-1.5 placeholder-gray-400 text-gray-800 disabled:opacity-50"
+          style={{ maxHeight: 80 }}
         />
 
         {/* 전송 버튼 */}
         <button
           onClick={handleSubmit}
-          disabled={!value.trim() || disabled}
-          className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-primary-500 text-white hover:bg-primary-600 transition-colors disabled:opacity-40"
+          disabled={!hasValue || disabled}
+          className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-all mb-0.5 ${
+            hasValue
+              ? 'bg-primary-500 text-white shadow-sm'
+              : 'bg-gray-300 text-white'
+          }`}
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 10l7-7m0 0l7 7m-7-7v18" />
           </svg>
         </button>
       </div>

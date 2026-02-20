@@ -394,7 +394,7 @@ if (!initialLoadDone && loading) {
 
 ---
 
-## 현재 진행 상황 (2026-02-19)
+## 현재 진행 상황 (2026-02-20)
 
 ### 완료
 - [x] 프로젝트 구조 세팅 (ilmakase-v2)
@@ -531,6 +531,29 @@ if (!initialLoadDone && loading) {
   - `syncFromParsedTasks`: DELETE/INSERT/UPDATE 순차 → `Promise.all` 병렬 실행
   - `saveWithText`: `saveLog` + 프로젝트 생성 순차 → `Promise.all` 병렬 실행
   - PostgrestFilterBuilder → `Promise.all` 사용 시 `Promise.resolve()` 래핑 필요
+
+- [x] **백로그(나중에 할 일) 기능** (2026-02-20)
+  - 미완료 업무 아코디언에 "나중에" 버튼 → work_logs.status = 'backlog'로 이동
+  - "나중에 할 일" 아코디언: 백로그 목록 + "오늘 추가" + 삭제
+  - "오늘 추가": work_date → targetDate, status → null + 텍스트 에디터에 추가
+  - 백로그에 직접 추가 (인라인 입력창)
+  - `hooks/useBacklog.ts` 신규, `hooks/useCarryOver.ts` backlog 필터 + id 포함
+  - DB: `database/migrate-backlog.sql` 실행 필요 (work_logs.status 컬럼)
+
+- [x] **업무 기록 탭 UX 개편** (2026-02-20)
+  - 미완료/백로그 아코디언 → 화면 상단에서 제거, 하단 칩 버튼으로 이동 (클릭 시 드롭다운)
+  - 업무 카드에 "나중에" 버튼 추가 (펼쳤을 때 하단, 삭제 버튼 왼쪽)
+  - 업무 카드 → 백로그: 텍스트 줄 제거 + DB status 변경 + 백로그 reload
+  - `renderStatusBar()` 함수로 미완료/백로그 통합 (모바일/데스크톱 공용)
+  - 모바일 사고 체크리스트 제거 (데스크톱만 유지)
+
+- [x] **모바일 레이아웃 전면 개편** (2026-02-20)
+  - `page.tsx` 모바일: `h-[100dvh] flex-col` 구조로 변경 (헤더 고정 + 중앙 스크롤 + 하단 입력바)
+  - 모바일/데스크톱 JSX 완전 분리 (isMobile 조건부 return)
+  - `MobileQuickInput`: pill 컨테이너 + 연필 아이콘 + 원형 전송 버튼 (iMessage 스타일)
+  - `MobileQuickInput` bottom: `calc(env(safe-area-inset-bottom, 0px) + 48px)` (iOS safe area 대응)
+  - `renderTaskCards` 모바일에서 내부 `overflow-y-auto` 제거 (페이지 스크롤 사용)
+  - 캘린더 기본값: 모바일 닫힘 / 데스크톱 열림 (`window.innerWidth` 동기 초기화)
 
 ### 진행 예정
 - [ ] (추후) AI 코칭 고도화 후 재도입 검토

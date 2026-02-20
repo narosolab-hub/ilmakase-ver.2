@@ -73,6 +73,7 @@ export const cacheKeys = {
   monthlyWorkSummary: (userId: string, yearMonth: string) => `monthlyWorkSummary:${userId}:${yearMonth}`,
   projectWorkLogs: (userId: string) => `projectWorkLogs:${userId}`,
   careerDocs: (userId: string) => `careerDocs:${userId}`,
+  backlog: (userId: string) => `backlog:${userId}`,
 }
 
 // 업무 목록을 해시로 변환 (캐시 키용)

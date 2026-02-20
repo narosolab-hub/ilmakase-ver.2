@@ -394,6 +394,7 @@ export type Database = {
           memos: Json | null
           progress: number | null
           project_id: string | null
+          status: string | null
           subtasks: Json | null
           task_id: string | null
           updated_at: string | null
@@ -412,6 +413,7 @@ export type Database = {
           memos?: Json | null
           progress?: number | null
           project_id?: string | null
+          status?: string | null
           subtasks?: Json | null
           task_id?: string | null
           updated_at?: string | null
@@ -430,6 +432,7 @@ export type Database = {
           memos?: Json | null
           progress?: number | null
           project_id?: string | null
+          status?: string | null
           subtasks?: Json | null
           task_id?: string | null
           updated_at?: string | null
