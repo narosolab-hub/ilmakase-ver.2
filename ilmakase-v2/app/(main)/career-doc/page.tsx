@@ -7,6 +7,8 @@ import { useProjects } from '@/hooks/useProjects'
 import { useCareerDocs } from '@/hooks/useCareerDocs'
 import { useRouter } from 'next/navigation'
 import { MobileBottomNav, DesktopTabs, Button } from '@/components/UI'
+import { useToast } from '@/contexts/ToastContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
 import {
   CompanyStep,
   ProjectSelectStep,
@@ -26,6 +28,8 @@ export default function CareerDocPage() {
   const { user } = useAuth()
   const router = useRouter()
   const isGuest = !user
+  const { toast } = useToast()
+  const { confirm } = useConfirm()
   const { companies, createCompany } = useCompanies()
   const { projects } = useProjects()
   const { careerDocs, loading: docsLoading, saveCareerDoc, updateCareerDoc, deleteCareerDoc } = useCareerDocs()
@@ -48,11 +52,10 @@ export default function CareerDocPage() {
   const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
 
   // 위저드 시작
-  const startWizard = () => {
+  const startWizard = async () => {
     if (isGuest) {
-      if (confirm('경력기술서를 생성하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
-        router.push('/login')
-      }
+      const ok = await confirm({ message: '경력기술서를 생성하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return
     }
     setMode('wizard')
@@ -107,7 +110,7 @@ export default function CareerDocPage() {
       setGeneratedContent(data.content)
     } catch (err) {
       console.error('경력기술서 생성 실패:', err)
-      alert(err instanceof Error ? err.message : '경력기술서 생성에 실패했습니다')
+      toast.error(err instanceof Error ? err.message : '경력기술서 생성에 실패했습니다')
       setCurrentStep('priority')
     } finally {
       setIsGenerating(false)
@@ -148,7 +151,7 @@ export default function CareerDocPage() {
       await deleteCareerDoc(confirmDeleteDoc.id)
       setConfirmDeleteDoc(null)
     } catch {
-      alert('삭제에 실패했습니다.')
+      toast.error('삭제에 실패했습니다.')
     }
   }
 

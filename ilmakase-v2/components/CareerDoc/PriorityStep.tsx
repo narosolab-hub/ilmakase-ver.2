@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button, Card, CardContent } from '@/components/UI'
 import type { Project, Company } from '@/types'
+import { useToast } from '@/contexts/ToastContext'
 
 interface ProjectWithPriority {
   project: Project
@@ -31,6 +32,7 @@ export default function PriorityStep({
   onNext,
   onAnalyze,
 }: PriorityStepProps) {
+  const { toast } = useToast()
   const [orderedProjects, setOrderedProjects] = useState<ProjectWithPriority[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [analyzed, setAnalyzed] = useState(false)
@@ -84,7 +86,7 @@ export default function PriorityStep({
       setAnalyzed(true)
     } catch (err) {
       console.error('AI 분석 실패:', err)
-      alert('AI 분석에 실패했습니다. 수동으로 우선순위를 조정해주세요.')
+      toast.error('AI 분석에 실패했습니다. 수동으로 우선순위를 조정해주세요.')
     } finally {
       setAnalyzing(false)
     }

@@ -4,15 +4,18 @@ import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { NAV_ITEMS } from '@/lib/navigation'
 import { useAuth } from '@/hooks/useAuth'
+import { useConfirm } from '@/contexts/ConfirmContext'
 
 export default function DesktopTabs() {
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut } = useAuth()
+  const { confirm } = useConfirm()
   const [showMenu, setShowMenu] = useState(false)
 
   const handleLogout = async () => {
-    if (!confirm('로그아웃 하시겠어요?')) return
+    const ok = await confirm({ message: '로그아웃 하시겠어요?', variant: 'danger', confirmLabel: '로그아웃' })
+    if (!ok) return
     await signOut()
     router.push('/worklog')
   }

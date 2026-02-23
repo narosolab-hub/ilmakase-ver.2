@@ -740,3 +740,114 @@ npm run dev
 
 - `INTEGRATION-v2.md`: 상세 기획서, 화면 설계, 워크플로우
 - `worklog-db/`: 기존 WorkLog 코드 (UI 참고용)
+
+---
+
+## 개선 백로그 (2026-02-23 작성)
+
+> **현재 단계**: 서비스 안정화 + 직접 사용하면서 구체화
+> 온보딩/랜딩/마케팅 관련 항목은 실사용자 확보 단계(Phase 2)로 분류
+
+---
+
+### Phase 1 — 서비스 안정화 (현재 집중)
+
+#### P0: 데이터 무결성 / 크리티컬 버그
+
+- [ ] **alert/confirm → 커스텀 ConfirmDialog 교체**
+  - 현재: 브라우저 native `alert()` / `confirm()` 남발 (스레드 블로킹, 스타일 불가, 모바일 끔찍)
+  - 목표: `<ConfirmDialog />` 컴포넌트 1개로 전체 교체
+  - 영향 파일: `DailyLogEditor.tsx`, `ProjectDetailPanel.tsx`, `projects/page.tsx`, `career-doc/page.tsx`
+
+- [ ] **토스트 알림 시스템 추가**
+  - 현재: 저장 성공/실패 시 UI 피드백 없음 (catch 블록에서 console.error만)
+  - 목표: 저장 완료 / 에러 발생 시 비차단 토스트 메시지
+  - 위치: `components/UI/Toast.tsx` + 루트 레이아웃에 Provider
+
+- [ ] **syncFromParsedTasks 경쟁 조건(Race Condition) 방지**
+  - 현재: 빠른 타이핑 중 저장 → 이전 sync 요청과 충돌 가능
+  - 목표: `AbortController` 또는 요청 직렬화로 중복 실행 방지
+
+#### P1: 매일 쓰면서 불편한 것들 (UX 완성도)
+
+- [ ] **사고 체크리스트 답변 저장 기능**
+  - 현재: 5가지 질문 표시만 하고 답변 저장 불가 → 회고 시 활용 불가
+  - 목표: 각 질문 아래 textarea 추가, work_logs.subtasks 또는 별도 JSONB 필드에 저장
+  - 핵심 가치 구현과 직결됨
+
+- [ ] **진척도 퀵셀렉트 버튼**
+  - 현재: 진척도 숫자 직접 입력 (모바일 특히 불편)
+  - 목표: 0 / 25 / 50 / 75 / 100 % 버튼 5개 → 클릭 1번으로 설정
+
+- [ ] **낙관적 업데이트 적용 (체크박스/진척도)**
+  - 현재: Supabase 응답 후 UI 갱신 → 네트워크 지연만큼 체감 딜레이
+  - 목표: 클릭 즉시 UI 반영, 실패 시 rollback (localStatusCache 활용)
+
+- [ ] **프로젝트-데일리 로그 간 빠른 이동**
+  - 현재: 데일리 로그의 업무 카드에서 프로젝트 탭으로 이동하는 방법 없음
+  - 목표: 업무 카드 프로젝트명 클릭 → 해당 프로젝트 탭 바로 이동
+
+#### P2: 데이터가 쌓이면 필요한 것
+
+- [ ] **ProjectDetailPanel 페이지네이션**
+  - 현재: 프로젝트 내 전체 work_logs를 한 번에 로드 (장기 사용자 → 수백 건)
+  - 목표: 날짜 기준 최근 30일 기본 표시 + "더 보기" 버튼
+
+- [ ] **AI 속도 제한 서버사이드 이전**
+  - 현재: localStorage 기반 5회 제한 → 개발자도구에서 즉시 우회 가능
+  - 목표: Supabase DB 카운터 (user_id + date + call_count) 기반 서버사이드 검증
+
+- [ ] **업무/프로젝트 검색 기능**
+  - 현재: 전체 텍스트 검색 방법 없음
+  - 목표: 데일리 로그 탭 상단 검색창 → content/project 전체 텍스트 검색 (Supabase ilike)
+
+- [ ] **DailyLogEditor 컴포넌트 분리 (유지보수)**
+  - 현재: 1,970줄 단일 파일 — 버그 추적/수정 난이도 높음
+  - 목표:
+    ```
+    DailyLogEditor/
+    ├── index.tsx             (~200줄, 조율만)
+    ├── TaskCard.tsx          (개별 태스크 카드)
+    ├── IncompleteTasksPanel.tsx
+    ├── BacklogOverlay.tsx
+    └── ThinkingChecklist.tsx
+    ```
+  - 기능 변경 없이 구조만 분리
+
+---
+
+### Phase 2 — 사용자 확보 단계 (추후)
+
+> 실사용자 받을 때 처리. 지금은 건드리지 않음.
+
+- [ ] **온보딩 / 첫 진입 가이드**
+  - `#프로젝트명/ 업무내용` 파싱 형식 안내
+  - 첫 방문 시 1회 가이드 툴팁 또는 예시 텍스트 placeholder
+
+- [ ] **Empty State 디자인**
+  - 신규 가입자 첫 화면: "첫 업무를 기록해보세요" 유도 UI
+
+- [ ] **성장 지표 시각화**
+  - "이번 달 가장 많이 작업한 프로젝트"
+  - "지난달 대비 완료율 +N%"
+  - "연속 기록 N일째" 스트릭
+
+- [ ] **알림 / 리마인더**
+  - 오늘 업무 기록 없을 시 알림 (PWA push 또는 이메일)
+  - 리텐션에 직결
+
+- [ ] **다크 모드**
+  - Tailwind `dark:` 클래스 기반, 시스템 설정 연동
+
+- [ ] **백로그 발견 가능성 개선**
+  - 네비게이션에 백로그 아이템 수 뱃지 표시
+  - 또는 전용 진입점 추가
+
+- [ ] **핵심 비즈니스 로직 테스트 코드**
+  - `lib/parser.ts` — 파싱 엣지케이스 (Vitest)
+  - `lib/mappers.ts` — snake→camel 변환
+  - `syncFromParsedTasks` — 3단계 매칭 로직
+
+- [ ] **DB 마이그레이션 버전 관리**
+  - 현재: 수동 SQL 파일 실행
+  - 목표: Supabase CLI migrations 도입 또는 파일에 순서 번호 부여

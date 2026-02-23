@@ -5,18 +5,21 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useAuth } from '@/hooks/useAuth'
 import { NAV_ITEMS } from '@/lib/navigation'
+import { useConfirm } from '@/contexts/ConfirmContext'
 
 export default function MobileBottomNav() {
   const pathname = usePathname()
   const router = useRouter()
   const isMobile = useIsMobile()
   const { user, signOut } = useAuth()
+  const { confirm } = useConfirm()
   const [showMenu, setShowMenu] = useState(false)
 
   if (!isMobile) return null
 
   const handleLogout = async () => {
-    if (!confirm('로그아웃 하시겠어요?')) return
+    const ok = await confirm({ message: '로그아웃 하시겠어요?', variant: 'danger', confirmLabel: '로그아웃' })
+    if (!ok) return
     await signOut()
     setShowMenu(false)
     router.push('/worklog')

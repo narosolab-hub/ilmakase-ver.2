@@ -10,7 +10,7 @@
  */
 
 import type { Database } from '@/types/database'
-import type { Subtask, Memo } from '@/types'
+import type { Subtask, Memo, ThinkingAnswers } from '@/types'
 
 // ============================================
 // WorkLog
@@ -33,6 +33,7 @@ export interface WorkLog {
   status: string | null
   subtasks: Subtask[] | null
   memos: Memo[] | null
+  thinkingAnswers: ThinkingAnswers | null
   createdAt: string
   updatedAt: string
 }
@@ -58,6 +59,7 @@ export const mapWorkLog = (db: WorkLogDB): WorkLog => {
     status: db.status ?? null,
     subtasks: db.subtasks as Subtask[] | null,
     memos,
+    thinkingAnswers: db.thinking_answers as ThinkingAnswers | null,
     createdAt: db.created_at ?? '',
     updatedAt: db.updated_at ?? '',
   }
@@ -79,6 +81,7 @@ export const mapWorkLogToDB = (client: Partial<WorkLog>): Partial<WorkLogDB> => 
   if (client.status !== undefined) result.status = client.status
   if (client.subtasks !== undefined) result.subtasks = client.subtasks as WorkLogDB['subtasks']
   if (client.memos !== undefined) result.memos = client.memos as WorkLogDB['memos']
+  if (client.thinkingAnswers !== undefined) result.thinking_answers = client.thinkingAnswers as WorkLogDB['thinking_answers']
   return result
 }
 

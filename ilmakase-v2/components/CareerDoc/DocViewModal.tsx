@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/UI'
 import type { CareerDocumentMapped } from '@/lib/mappers'
+import { useToast } from '@/contexts/ToastContext'
 
 interface DocViewModalProps {
   doc: CareerDocumentMapped
@@ -12,6 +13,7 @@ interface DocViewModalProps {
 }
 
 export default function DocViewModal({ doc, onClose, onSave, onDelete }: DocViewModalProps) {
+  const { toast } = useToast()
   const [content, setContent] = useState(doc.content || '')
   const [isEditing, setIsEditing] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -28,7 +30,7 @@ export default function DocViewModal({ doc, onClose, onSave, onDelete }: DocView
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      alert('복사에 실패했습니다.')
+      toast.error('복사에 실패했습니다.')
     }
   }
 
@@ -38,7 +40,7 @@ export default function DocViewModal({ doc, onClose, onSave, onDelete }: DocView
       await onSave(doc.id, { content })
       setIsEditing(false)
     } catch {
-      alert('저장에 실패했습니다.')
+      toast.error('저장에 실패했습니다.')
     } finally {
       setSaving(false)
     }
@@ -49,7 +51,7 @@ export default function DocViewModal({ doc, onClose, onSave, onDelete }: DocView
       await onDelete(doc.id)
       onClose()
     } catch {
-      alert('삭제에 실패했습니다.')
+      toast.error('삭제에 실패했습니다.')
     }
   }
 

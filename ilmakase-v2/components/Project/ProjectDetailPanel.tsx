@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { WorkLog } from '@/lib/mappers'
 import type { Project, Subtask, Memo } from '@/types'
 import { calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
 import DueDatePicker from '@/components/UI/DueDatePicker'
 import DateMovePicker from '@/components/UI/DateMovePicker'
+import { useToast } from '@/contexts/ToastContext'
 
 interface ProjectDetailPanelProps {
   project: Project | null
@@ -77,6 +78,8 @@ export default function ProjectDetailPanel({
   onDeleteProject,
   onBack,
 }: ProjectDetailPanelProps) {
+  const { toast } = useToast()
+
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [addingMemoFor, setAddingMemoFor] = useState<string | null>(null)
   const [newMemoText, setNewMemoText] = useState('')
@@ -86,12 +89,20 @@ export default function ProjectDetailPanel({
   const [newSubtaskText, setNewSubtaskText] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
+  // 낙관적 업데이트용 로컬 상태
+  const [localWorkLogs, setLocalWorkLogs] = useState<WorkLog[]>(workLogs)
+
+  // prop 변경 시 sync
+  useEffect(() => {
+    setLocalWorkLogs(workLogs)
+  }, [workLogs])
+
   const projectName = project?.name || '미분류'
 
-  // 날짜별 그룹핑 (최신순)
+  // 날짜별 그룹핑 (최신순) — localWorkLogs 기반
   const groupedByDate = useMemo(() => {
     const groups = new Map<string, WorkLog[]>()
-    for (const wl of workLogs) {
+    for (const wl of localWorkLogs) {
       const date = wl.workDate
       if (!groups.has(date)) groups.set(date, [])
       groups.get(date)!.push(wl)
@@ -114,12 +125,32 @@ export default function ProjectDetailPanel({
     const newProgress = calculateProgressFromSubtasks(
       wl.subtasks, newCompleted, newCompleted ? 100 : wl.progress
     )
-    await onUpdateWorkLog(wl.id, { isCompleted: newCompleted, progress: newProgress })
-  }, [onUpdateWorkLog])
+    // 낙관적 업데이트
+    setLocalWorkLogs(prev => prev.map(w =>
+      w.id === wl.id ? { ...w, isCompleted: newCompleted, progress: newProgress } : w
+    ))
+    try {
+      await onUpdateWorkLog(wl.id, { isCompleted: newCompleted, progress: newProgress })
+    } catch (err) {
+      console.error('[handleToggleComplete]', err)
+      setLocalWorkLogs(prev => prev.map(w => w.id === wl.id ? wl : w))
+      toast.error('업데이트에 실패했습니다.')
+    }
+  }, [onUpdateWorkLog, toast])
 
   const handleProgressChange = useCallback(async (wl: WorkLog, progress: number) => {
-    await onUpdateWorkLog(wl.id, { progress })
-  }, [onUpdateWorkLog])
+    // 낙관적 업데이트
+    setLocalWorkLogs(prev => prev.map(w =>
+      w.id === wl.id ? { ...w, progress } : w
+    ))
+    try {
+      await onUpdateWorkLog(wl.id, { progress })
+    } catch (err) {
+      console.error('[handleProgressChange]', err)
+      setLocalWorkLogs(prev => prev.map(w => w.id === wl.id ? wl : w))
+      toast.error('업데이트에 실패했습니다.')
+    }
+  }, [onUpdateWorkLog, toast])
 
   const handleAddMemo = useCallback(async (wl: WorkLog, content: string) => {
     if (!content.trim()) return
@@ -205,9 +236,18 @@ export default function ProjectDetailPanel({
   }, [onUpdateWorkLog])
 
   const handleDeleteWorkLog = useCallback(async (id: string) => {
-    await onDeleteWorkLog(id)
+    const prevLogs = localWorkLogs
+    // 낙관적 업데이트
+    setLocalWorkLogs(prev => prev.filter(w => w.id !== id))
     setConfirmDelete(null)
-  }, [onDeleteWorkLog])
+    try {
+      await onDeleteWorkLog(id)
+    } catch (err) {
+      console.error('[handleDeleteWorkLog]', err)
+      setLocalWorkLogs(prevLogs)
+      toast.error('삭제에 실패했습니다.')
+    }
+  }, [onDeleteWorkLog, localWorkLogs, toast])
 
   // 업무 카드 렌더링
   const renderTaskCard = (wl: WorkLog) => {
@@ -303,15 +343,23 @@ export default function ProjectDetailPanel({
             {/* 진척도 + 마감일 - 한 줄 */}
             <div className="flex items-center gap-4 flex-wrap">
               {!hasSubtasks && (
-                <div className="flex items-center gap-2 flex-1 min-w-[180px]">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[11px] text-gray-400 flex-shrink-0">진척도</span>
-                  <input
-                    type="range" min="0" max="100" step="10"
-                    value={wl.progress}
-                    onChange={e => handleProgressChange(wl, Number(e.target.value))}
-                    className="flex-1 h-1.5 accent-primary-500"
-                  />
-                  <span className="text-[11px] text-gray-500 w-7 text-right">{wl.progress}%</span>
+                  <div className="flex gap-1">
+                    {[0, 25, 50, 75, 100].map((pct) => (
+                      <button
+                        key={pct}
+                        onClick={() => handleProgressChange(wl, pct)}
+                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${
+                          wl.progress === pct
+                            ? 'bg-primary-500 text-white'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               <div className="flex items-center gap-2">

@@ -1,3 +1,12 @@
+// 사고 체크리스트 답변 타입
+export interface ThinkingAnswers {
+  why?: string
+  who?: string
+  done?: string
+  need?: string
+  risk?: string
+}
+
 // 세부 업무 타입
 export interface Subtask {
   id: string

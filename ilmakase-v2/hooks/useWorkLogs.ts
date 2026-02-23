@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from './useAuth'
 import { dataCache, storageCache, cacheKeys } from '@/lib/cache'
@@ -40,6 +40,7 @@ export function useWorkLogs(targetDate: string) {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
+  const syncGenerationRef = useRef(0)
 
   const fetchWorkLogs = useCallback(async () => {
     if (!user) {
@@ -102,6 +103,8 @@ export function useWorkLogs(targetDate: string) {
     carryOverData?: Map<string, { detail?: string | null; subtasks?: Subtask[] | null; progress?: number; dueDate?: string | null; memos?: Memo[] | null }>
   ) => {
     if (!user) return null
+
+    const generation = ++syncGenerationRef.current
 
     const supabase = createClient()
 
@@ -252,6 +255,9 @@ export function useWorkLogs(targetDate: string) {
       .order('created_at', { ascending: true })
 
     if (error) throw error
+
+    // stale 결과 무시: 더 최신 sync가 진행 중이면 적용하지 않음
+    if (generation !== syncGenerationRef.current) return null
 
     // DB → Client 변환 후 메모리 + localStorage 캐시 갱신
     const mapped = (updatedLogs || []).map(mapWorkLog)

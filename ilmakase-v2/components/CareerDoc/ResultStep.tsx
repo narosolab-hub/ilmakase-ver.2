@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button, Card, CardContent } from '@/components/UI'
 import type { Company } from '@/types'
+import { useToast } from '@/contexts/ToastContext'
 
 interface ResultStepProps {
   company: Company
@@ -23,6 +24,7 @@ export default function ResultStep({
   onSave,
   saved = false,
 }: ResultStepProps) {
+  const { toast } = useToast()
   const [content, setContent] = useState(generatedContent)
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -46,7 +48,7 @@ export default function ResultStep({
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
       console.error('복사 실패:', err)
-      alert('복사에 실패했습니다.')
+      toast.error('복사에 실패했습니다.')
     }
   }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useProjects, type Project } from '@/hooks/useProjects'
 import { useProjectWorkLogs } from '@/hooks/useProjectWorkLogs'
 import { useAuth } from '@/hooks/useAuth'
@@ -9,15 +9,21 @@ import { createClient } from '@/lib/supabase/client'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import { parseAllTasks, formatProjectLine } from '@/lib/parser'
 import type { WorkLog } from '@/lib/mappers'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button, Card, CardContent, Input, MobileBottomNav, DesktopTabs } from '@/components/UI'
 import { ProjectDetailModal, ProjectDetailPanel } from '@/components/Project'
+import { useToast } from '@/contexts/ToastContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
 
-export default function ProjectsPage() {
+function ProjectsPageInner() {
   const { user } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const projectParam = searchParams.get('project')
   const isMobile = useIsMobile()
   const isGuest = !user
+  const { toast } = useToast()
+  const { confirm } = useConfirm()
   const {
     createProject,
     updateProject,
@@ -38,18 +44,24 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
 
-  const requireLogin = () => {
+  // URL query param으로 프로젝트 자동 선택 (/projects?project=이름)
+  useEffect(() => {
+    if (!projectParam || !initialLoadDone || selectedProjectId) return
+    const group = projectWorkLogs.find(g => g.project?.name === projectParam)
+    if (group?.project) setSelectedProjectId(group.project.id)
+  }, [projectParam, initialLoadDone, projectWorkLogs, selectedProjectId])
+
+  const requireLogin = async () => {
     if (isGuest) {
-      if (confirm('이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
-        router.push('/login')
-      }
+      const ok = await confirm({ message: '이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return true
     }
     return false
   }
 
   const handleCreateProject = async () => {
-    if (requireLogin()) return
+    if (await requireLogin()) return
     if (!newProjectName.trim()) return
     try {
       setCreating(true)
@@ -59,7 +71,7 @@ export default function ProjectsPage() {
       reload()
     } catch (err) {
       console.error('프로젝트 생성 실패:', err)
-      alert('프로젝트 생성에 실패했습니다.')
+      toast.error('프로젝트 생성에 실패했습니다.')
     } finally {
       setCreating(false)
     }
@@ -70,7 +82,8 @@ export default function ProjectsPage() {
     const msg = isCompleting
       ? '이 프로젝트를 완료 처리하시겠습니까?'
       : '이 프로젝트를 진행 중으로 되돌리시겠습니까?'
-    if (!confirm(msg)) return
+    const ok = await confirm({ message: msg, variant: isCompleting ? 'default' : 'default', confirmLabel: isCompleting ? '완료 처리' : '진행 중으로 변경' })
+    if (!ok) return
     try {
       await updateProject(project.id, {
         status: isCompleting ? '완료' : '진행중',
@@ -87,7 +100,8 @@ export default function ProjectsPage() {
     const msg = taskCount > 0
       ? `이 프로젝트에 업무 ${taskCount}개가 연결되어 있습니다.\n프로젝트만 삭제되고 업무 기록은 유지됩니다.\n삭제하시겠습니까?`
       : '이 프로젝트를 삭제하시겠습니까?'
-    if (!confirm(msg)) return
+    const ok = await confirm({ message: msg, variant: 'danger', confirmLabel: '삭제' })
+    if (!ok) return
     try {
       await deleteProject(project.id)
       setSelectedProjectId(null)
@@ -281,8 +295,8 @@ export default function ProjectsPage() {
               )}
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (requireLogin()) return
+                onClick={async () => {
+                  if (await requireLogin()) return
                   setShowNewProject(true)
                 }}
               >
@@ -477,5 +491,13 @@ export default function ProjectsPage() {
       {/* 모바일: 하단 탭 */}
       <MobileBottomNav />
     </div>
+  )
+}
+
+export default function ProjectsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ProjectsPageInner />
+    </Suspense>
   )
 }

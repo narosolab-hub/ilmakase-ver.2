@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Button, Input, Card, CardContent } from '@/components/UI'
 import type { Company } from '@/types'
+import { useToast } from '@/contexts/ToastContext'
 
 interface CompanyStepProps {
   companies: Company[]
@@ -26,6 +27,7 @@ export default function CompanyStep({
   onCreate,
   onNext,
 }: CompanyStepProps) {
+  const { toast } = useToast()
   const [showForm, setShowForm] = useState(false)
   const [creating, setCreating] = useState(false)
 
@@ -55,7 +57,7 @@ export default function CompanyStep({
       resetForm()
     } catch (err) {
       console.error('회사 생성 실패:', err)
-      alert('회사 추가에 실패했습니다.')
+      toast.error('회사 추가에 실패했습니다.')
     } finally {
       setCreating(false)
     }

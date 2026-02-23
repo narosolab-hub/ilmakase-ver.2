@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { parseAllTasks, formatProjectLine } from '@/lib/parser'
-import { ParsedTask, Subtask, Memo } from '@/types'
+import { ParsedTask, Subtask, Memo, ThinkingAnswers } from '@/types'
 import { useDailyLog } from '@/hooks/useDailyLog'
 import { useWorkLogs, calculateProgressFromSubtasks } from '@/hooks/useWorkLogs'
 import { useCarryOver, IncompleteTaskData } from '@/hooks/useCarryOver'
@@ -19,6 +19,8 @@ import DateMovePicker from '@/components/UI/DateMovePicker'
 import MobileQuickInput from './MobileQuickInput'
 import MobileFullEditor from './MobileFullEditor'
 import { useRouter } from 'next/navigation'
+import { useToast } from '@/contexts/ToastContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
 
 const GUEST_DRAFT_KEY = 'ilmakase_guest_draft'
 
@@ -33,6 +35,7 @@ interface TaskWithDB extends ParsedTask {
   dueDate?: string | null
   subtasks?: Subtask[] | null
   memos?: Memo[] | null
+  thinkingAnswers?: ThinkingAnswers | null
 }
 
 interface LocalTaskStatus {
@@ -104,6 +107,8 @@ const THINKING_CHECKLIST = [
 export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorProps) {
   const { user } = useAuth()
   const router = useRouter()
+  const { toast } = useToast()
+  const { confirm } = useConfirm()
   const { log, loading, saveLog } = useDailyLog(targetDate)
   const { workLogs, syncFromParsedTasks, updateWorkLog, deleteWorkLog } = useWorkLogs(targetDate)
   const { getIncompleteTasks, invalidateCache, carryingOver, moveToBacklog } = useCarryOver()
@@ -125,6 +130,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
   const [fullEditorOpen, setFullEditorOpen] = useState(false)
+  const [thinkingDraft, setThinkingDraft] = useState<Partial<ThinkingAnswers>>({})
+  const [savingThinking, setSavingThinking] = useState(false)
 
   // 메모 상태 (기존 단일 메모 → 메모 목록)
   const [addingMemoFor, setAddingMemoFor] = useState<string | null>(null)   // workLogId
@@ -248,6 +255,16 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     setParsedTasks(tasks)
   }, [text])
 
+  // 선택된 업무 변경 시 사고 체크리스트 답변 로드
+  useEffect(() => {
+    if (selectedTask === null) {
+      setThinkingDraft({})
+      return
+    }
+    const task = tasksWithDBStatus.find(t => t.lineIndex === selectedTask)
+    setThinkingDraft(task?.thinkingAnswers ?? {})
+  }, [selectedTask]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const tasksWithDBStatus: TaskWithDB[] = useMemo(() => {
     void cacheVersion
 
@@ -282,6 +299,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           dueDate: cachedStatus?.dueDate !== undefined ? cachedStatus.dueDate : matchingLog.dueDate,
           subtasks,
           memos: cachedStatus?.memos !== undefined ? cachedStatus.memos : matchingLog.memos,
+          thinkingAnswers: matchingLog.thinkingAnswers,
         }
       }
 
@@ -306,6 +324,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
 
   const handleCheckboxToggle = async (task: TaskWithDB) => {
     const cacheKey = `${task.project_name}:${task.content}`
+    const prevStatus = localStatusCache.current.get(cacheKey)
     const newCompleted = !task.isCompleted
     // 세부 업무가 있으면 자동 계산, 없으면 기존 로직
     const newProgress = task.subtasks && task.subtasks.length > 0
@@ -335,7 +354,9 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       onSave?.()
     } catch (err) {
       console.error('[handleCheckboxToggle]', err)
-      deleteLocalCache(cacheKey)
+      if (prevStatus) updateLocalCache(cacheKey, prevStatus)
+      else deleteLocalCache(cacheKey)
+      toast.error('업데이트에 실패했습니다.')
     }
   }
 
@@ -343,6 +364,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     if (task.subtasks && task.subtasks.length > 0) return
 
     const cacheKey = `${task.project_name}:${task.content}`
+    const prevStatus = localStatusCache.current.get(cacheKey)
     const newCompleted = newProgress >= 100
 
     updateLocalCache(cacheKey, {
@@ -368,7 +390,9 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       onSave?.()
     } catch (err) {
       console.error('[handleProgressChange]', err)
-      deleteLocalCache(cacheKey)
+      if (prevStatus) updateLocalCache(cacheKey, prevStatus)
+      else deleteLocalCache(cacheKey)
+      toast.error('업데이트에 실패했습니다.')
     }
   }
 
@@ -599,7 +623,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
 
   const handleDeleteTask = async (task: TaskWithDB) => {
     if (!task.workLogId) return
-    if (!confirm('이 업무를 삭제하시겠습니까?')) return
+    const ok = await confirm({ message: '이 업무를 삭제하시겠습니까?', variant: 'danger' })
+    if (!ok) return
 
     try {
       await deleteWorkLog(task.workLogId)
@@ -611,7 +636,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       await saveLog(newText, parseAllTasks(newText).length, 0)
     } catch (err) {
       console.error('업무 삭제 실패:', err)
-      alert('삭제에 실패했습니다.')
+      toast.error('삭제에 실패했습니다.')
     }
   }
 
@@ -659,7 +684,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       onSave?.()
     } catch (err) {
       console.error('업무 이동 실패:', err)
-      alert('날짜 이동에 실패했습니다.')
+      toast.error('날짜 이동에 실패했습니다.')
     }
   }
 
@@ -676,9 +701,11 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       setSaving(false)
       setHasUnsavedChanges(false)
 
-      if (confirm('작성한 내용을 저장하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?\n\n(내용은 임시 저장됩니다)')) {
-        router.push('/login')
-      }
+      const ok = await confirm({
+        message: '작성한 내용을 저장하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?\n\n(내용은 임시 저장됩니다)',
+        confirmLabel: '로그인',
+      })
+      if (ok) router.push('/login')
       return
     }
 
@@ -771,7 +798,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
       onSave?.()
     } catch (err) {
       console.error('저장 실패:', err)
-      alert('저장에 실패했습니다.')
+      toast.error('저장에 실패했습니다.')
     } finally {
       setSaving(false)
     }
@@ -868,7 +895,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   // 업무 카드 → 백로그로 이동 (텍스트에서 줄 제거 + DB status 변경)
   const handleTaskCardToBacklog = async (task: TaskWithDB) => {
     if (isGuest) {
-      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      const ok = await confirm({ message: '로그인이 필요합니다. 로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return
     }
     if (!task.workLogId) return
@@ -892,7 +920,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   // 미완료 업무 → 백로그로 이동
   const handleMoveToBacklog = async (task: IncompleteTaskData) => {
     if (isGuest) {
-      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      const ok = await confirm({ message: '로그인이 필요합니다. 로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return
     }
     await moveToBacklog(task.id)
@@ -905,7 +934,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   // 백로그 → 오늘로 이동 (텍스트 에디터에 추가 + DB work_date 변경)
   const handleMoveBacklogToToday = async (item: WorkLog) => {
     if (isGuest) {
-      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      const ok = await confirm({ message: '로그인이 필요합니다. 로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return
     }
     const projectName = item.keywords?.[0] || '기타'
@@ -959,7 +989,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   // 백로그에 직접 추가
   const handleAddToBacklog = async () => {
     if (isGuest) {
-      if (confirm('로그인이 필요합니다. 로그인 페이지로 이동할까요?')) router.push('/login')
+      const ok = await confirm({ message: '로그인이 필요합니다. 로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return
     }
     const trimmed = backlogInput.trim()
@@ -1094,33 +1125,40 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 relative h-2 bg-gray-200 rounded-lg">
-                    <div
-                      className={`absolute h-full rounded-lg transition-all ${
-                        task.progress >= 100 ? 'bg-emerald-500' : 'bg-primary-500'
-                      }`}
-                      style={{ width: `${task.progress}%` }}
-                    />
-                    {/* 세부 업무 없을 때만 수동 조정 가능 */}
-                    {!task.isCompleted && (!task.subtasks || task.subtasks.length === 0) && (
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="10"
-                        value={task.progress}
-                        onChange={(e) => handleProgressChange(task, parseInt(e.target.value))}
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                <div>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex-1 h-2 bg-gray-200 rounded-lg overflow-hidden">
+                      <div
+                        className={`h-full rounded-lg transition-all ${
+                          task.progress >= 100 ? 'bg-emerald-500' : 'bg-primary-500'
+                        }`}
+                        style={{ width: `${task.progress}%` }}
                       />
-                    )}
+                    </div>
+                    <span className={`text-sm font-semibold w-12 text-right ${
+                      task.progress >= 100 ? 'text-emerald-600' : 'text-gray-700'
+                    }`}>
+                      {task.progress}%
+                    </span>
                   </div>
-                  <span className={`text-sm font-semibold w-12 text-right ${
-                    task.progress >= 100 ? 'text-emerald-600' : 'text-gray-700'
-                  }`}>
-                    {task.progress}%
-                  </span>
+                  {/* 진척도 퀵셀렉트 버튼 (세부 업무 없고 미완료일 때) */}
+                  {!task.isCompleted && (!task.subtasks || task.subtasks.length === 0) && (
+                    <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                      {[0, 25, 50, 75, 100].map((pct) => (
+                        <button
+                          key={pct}
+                          onClick={() => handleProgressChange(task, pct)}
+                          className={`flex-1 py-1 text-xs rounded-md transition-colors ${
+                            task.progress === pct
+                              ? 'bg-primary-500 text-white'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {task.subtasks && task.subtasks.length > 0 && (
                   <p className="text-xs text-gray-400 mt-1">
@@ -1420,8 +1458,8 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
           return (
             <div key={name} className="rounded-xl border border-gray-200 overflow-hidden">
               {/* 그룹 헤더 */}
-              <button
-                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+              <div
+                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
                 onClick={() => setCollapsedGroups(prev => {
                   const next = new Set(prev)
                   if (next.has(name)) next.delete(name); else next.add(name)
@@ -1429,7 +1467,16 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                 })}
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-primary-600">#{name}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      router.push(`/projects?project=${encodeURIComponent(name)}`)
+                    }}
+                    className="text-xs font-semibold text-primary-600 hover:text-primary-700 hover:underline transition-colors"
+                    title={`${name} 프로젝트 보기`}
+                  >
+                    #{name}
+                  </button>
                   <span className="text-xs text-gray-400">
                     {completedTasks.length}/{tasks.length}
                   </span>
@@ -1440,7 +1487,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
-              </button>
+              </div>
 
               {/* 그룹 내용 */}
               {!isCollapsed && (
@@ -1744,55 +1791,108 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
     )
   }
 
-  // 사고 체크리스트 (모바일/데스크톱 공용)
-  const renderChecklist = () => (
-    <div className="mb-4 bg-gradient-to-br from-slate-50 to-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-      <button
-        onClick={() => setShowChecklist(!showChecklist)}
-        className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-100/50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm">💭</span>
-          <span className="text-gray-600 text-xs font-medium">
-            사고 체크리스트
-          </span>
-        </div>
-        <svg
-          className={`w-4 h-4 text-gray-400 transition-transform ${showChecklist ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
+  // 사고 체크리스트 답변 저장 핸들러
+  const handleSaveThinkingAnswer = async (itemId: string, value: string) => {
+    const task = selectedTask !== null ? tasksWithDBStatus.find(t => t.lineIndex === selectedTask) : null
+    if (!task?.workLogId) return
+
+    const newAnswers: ThinkingAnswers = { ...thinkingDraft, [itemId]: value }
+    setThinkingDraft(newAnswers)
+
+    setSavingThinking(true)
+    try {
+      await updateWorkLog(task.workLogId, { thinkingAnswers: newAnswers })
+    } catch (err) {
+      console.error('[handleSaveThinkingAnswer]', err)
+      toast.error('저장에 실패했습니다.')
+    } finally {
+      setSavingThinking(false)
+    }
+  }
+
+  // 사고 체크리스트 (데스크톱 전용)
+  const renderChecklist = () => {
+    const selectedTaskObj = selectedTask !== null ? tasksWithDBStatus.find(t => t.lineIndex === selectedTask) : null
+    const hasWorkLog = !!selectedTaskObj?.workLogId
+
+    return (
+      <div className="mb-4 bg-gradient-to-br from-slate-50 to-gray-50 border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowChecklist(!showChecklist)}
+          className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-100/50 transition-colors"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {showChecklist && (
-        <div className="px-4 pb-4">
-          <div className="flex flex-wrap gap-2">
-            {THINKING_CHECKLIST.map((item) => (
-              <div
-                key={item.id}
-                className="group relative flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all cursor-default"
-              >
-                <span className="text-sm">{item.icon}</span>
-                <span className="text-xs text-gray-600 font-medium">{item.question}</span>
-
-                {/* 툴팁 */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
-                  {item.full}
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center gap-2">
+            <span className="text-sm">💭</span>
+            <span className="text-gray-600 text-xs font-medium">
+              사고 체크리스트
+              {selectedTaskObj && (
+                <span className="ml-1.5 text-primary-500">· {selectedTaskObj.content.slice(0, 20)}{selectedTaskObj.content.length > 20 ? '...' : ''}</span>
+              )}
+            </span>
+            {savingThinking && <span className="text-[10px] text-gray-400">저장 중...</span>}
           </div>
-          <p className="text-xs text-gray-400 mt-3">
-            {isMobile ? '각 항목을 탭하여 질문을 확인하세요' : '각 항목에 마우스를 올려 자세한 질문을 확인하세요'}
-          </p>
-        </div>
-      )}
-    </div>
-  )
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform ${showChecklist ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {showChecklist && (
+          <div className="px-4 pb-4">
+            {hasWorkLog ? (
+              // 업무 선택됨: 각 질문 아래 textarea 입력
+              <div className="space-y-3">
+                {THINKING_CHECKLIST.map((item) => (
+                  <div key={item.id}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-sm">{item.icon}</span>
+                      <span className="text-xs font-medium text-gray-600">{item.question}</span>
+                      <span className="text-[10px] text-gray-400">({item.full})</span>
+                    </div>
+                    <textarea
+                      value={thinkingDraft[item.id as keyof ThinkingAnswers] ?? ''}
+                      onChange={(e) => setThinkingDraft(prev => ({ ...prev, [item.id]: e.target.value }))}
+                      onBlur={(e) => handleSaveThinkingAnswer(item.id, e.target.value)}
+                      rows={2}
+                      placeholder="생각을 적어보세요..."
+                      className="w-full text-xs p-2 border border-gray-200 rounded-lg resize-none outline-none focus:border-primary-400 bg-white transition-colors"
+                    />
+                  </div>
+                ))}
+                <p className="text-[10px] text-gray-400">업무 카드를 닫으면 자동 저장됩니다</p>
+              </div>
+            ) : (
+              // 업무 미선택: 칩 + 툴팁
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {THINKING_CHECKLIST.map((item) => (
+                    <div
+                      key={item.id}
+                      className="group relative flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all cursor-default"
+                    >
+                      <span className="text-sm">{item.icon}</span>
+                      <span className="text-xs text-gray-600 font-medium">{item.question}</span>
+
+                      {/* 툴팁 */}
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                        {item.full}
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-3">업무 카드를 선택하면 각 질문에 답변을 기록할 수 있습니다</p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // ─── 모바일 레이아웃 ───
   if (isMobile) {

@@ -397,6 +397,7 @@ export type Database = {
           status: string | null
           subtasks: Json | null
           task_id: string | null
+          thinking_answers: Json | null
           updated_at: string | null
           user_id: string
           work_date: string
@@ -416,6 +417,7 @@ export type Database = {
           status?: string | null
           subtasks?: Json | null
           task_id?: string | null
+          thinking_answers?: Json | null
           updated_at?: string | null
           user_id: string
           work_date?: string
@@ -435,6 +437,7 @@ export type Database = {
           status?: string | null
           subtasks?: Json | null
           task_id?: string | null
+          thinking_answers?: Json | null
           updated_at?: string | null
           user_id?: string
           work_date?: string

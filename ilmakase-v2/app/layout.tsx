@@ -1,5 +1,8 @@
 import type { Metadata } from "next"
 import "./globals.css"
+import { ToastProvider } from "@/contexts/ToastContext"
+import { ConfirmProvider } from "@/contexts/ConfirmContext"
+import ToastContainer from "@/components/UI/Toast"
 
 export const metadata: Metadata = {
   title: "일마카세 v2 - 업무 기록이 경력기술서가 되는 곳",
@@ -14,7 +17,12 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className="antialiased bg-gray-50 min-h-screen">
-        {children}
+        <ToastProvider>
+          <ConfirmProvider>
+            {children}
+            <ToastContainer />
+          </ConfirmProvider>
+        </ToastProvider>
       </body>
     </html>
   )

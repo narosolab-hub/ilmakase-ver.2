@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button, Input } from '@/components/UI'
 import type { Project, ProjectOutcome } from '@/types'
+import { useToast } from '@/contexts/ToastContext'
 
 interface ProjectDetailModalProps {
   project: Project
@@ -66,6 +67,7 @@ export default function ProjectDetailModal({
   onClose,
   onSave,
 }: ProjectDetailModalProps) {
+  const { toast } = useToast()
   const [saving, setSaving] = useState(false)
 
   // 편집 상태
@@ -132,7 +134,7 @@ export default function ProjectDetailModal({
       onClose()
     } catch (err) {
       console.error('저장 실패:', err)
-      alert('저장에 실패했습니다.')
+      toast.error('저장에 실패했습니다.')
     } finally {
       setSaving(false)
     }

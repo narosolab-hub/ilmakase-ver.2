@@ -9,6 +9,8 @@ import { useRouter } from 'next/navigation'
 import { MobileBottomNav, DesktopTabs } from '@/components/UI'
 import { dataCache, cacheKeys } from '@/lib/cache'
 import type { MonthlyWorkSummary as MonthlyWorkSummaryType, MentorFeedback as MentorFeedbackType, KPTReflection as KPTReflectionType } from '@/types'
+import { useToast } from '@/contexts/ToastContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
 
 interface MonthlyReviewData {
   id?: string
@@ -23,6 +25,8 @@ export default function ReviewPage() {
   const { user } = useAuth()
   const router = useRouter()
   const isGuest = !user
+  const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [review, setReview] = useState<MonthlyReviewData | null>(null)
   const [workSummary, setWorkSummary] = useState<MonthlyWorkSummaryType | null>(null)
@@ -70,9 +74,8 @@ export default function ReviewPage() {
   // AI 피드백 생성
   const generateFeedback = async () => {
     if (!user) {
-      if (confirm('이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
-        router.push('/login')
-      }
+      const ok = await confirm({ message: '이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return
     }
     setGenerating(true)
@@ -85,7 +88,7 @@ export default function ReviewPage() {
 
       if (!res.ok) {
         const data = await res.json()
-        alert(data.error || '피드백 생성에 실패했습니다')
+        toast.error(data.error || '피드백 생성에 실패했습니다')
         return
       }
 
@@ -94,7 +97,7 @@ export default function ReviewPage() {
       dataCache.set(cacheKeys.monthlyReview(user.id, selectedMonth), data.review)
     } catch (err) {
       console.error('피드백 생성 실패:', err)
-      alert('피드백 생성에 실패했습니다')
+      toast.error('피드백 생성에 실패했습니다')
     } finally {
       setGenerating(false)
     }
@@ -103,9 +106,8 @@ export default function ReviewPage() {
   // KPT 저장
   const saveKPT = async (kpt: KPTReflectionType) => {
     if (!user) {
-      if (confirm('이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?')) {
-        router.push('/login')
-      }
+      const ok = await confirm({ message: '이 기능을 사용하려면 로그인이 필요합니다.\n로그인 페이지로 이동할까요?', confirmLabel: '로그인' })
+      if (ok) router.push('/login')
       return
     }
     setSavingKPT(true)
@@ -121,7 +123,7 @@ export default function ReviewPage() {
 
       if (!res.ok) {
         const data = await res.json()
-        alert(data.error || 'KPT 저장에 실패했습니다')
+        toast.error(data.error || 'KPT 저장에 실패했습니다')
         return
       }
 
@@ -130,7 +132,7 @@ export default function ReviewPage() {
       dataCache.set(cacheKeys.monthlyReview(user.id, selectedMonth), data.review)
     } catch (err) {
       console.error('KPT 저장 실패:', err)
-      alert('KPT 저장에 실패했습니다')
+      toast.error('KPT 저장에 실패했습니다')
     } finally {
       setSavingKPT(false)
     }
