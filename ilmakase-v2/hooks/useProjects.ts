@@ -131,13 +131,10 @@ export function useProjects() {
     setProjects(prev => prev.filter(p => p.id !== id))
   }, [user])
 
-  // 프로젝트명으로 검색/매칭
+  // 프로젝트명으로 검색/매칭 (이름 정확 일치만 — keywords 매칭은 AI 자동매칭 API 전용)
   const findProjectByName = useCallback((name: string): Project | undefined => {
     const lowerName = name.toLowerCase()
-    return projects.find(p =>
-      p.name.toLowerCase() === lowerName ||
-      p.keywords.some(k => k.toLowerCase() === lowerName)
-    )
+    return projects.find(p => p.name.toLowerCase() === lowerName)
   }, [projects])
 
   // 키워드로 유사 프로젝트 검색

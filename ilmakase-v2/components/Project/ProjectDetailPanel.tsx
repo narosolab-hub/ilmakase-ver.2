@@ -109,7 +109,7 @@ export default function ProjectDetailPanel({
     }
     // 최신 날짜순 정렬
     return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]))
-  }, [workLogs])
+  }, [localWorkLogs])
 
   const toggleTask = (id: string) => {
     setExpandedTasks(prev => {

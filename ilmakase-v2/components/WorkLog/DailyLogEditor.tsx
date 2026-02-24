@@ -1533,8 +1533,7 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
   // 미완료 + 백로그 상태바 (하단 배치, 공용)
   const renderStatusBar = () => {
     const hasIncomplete = incompleteTasks.length > 0
-    const hasBacklog = backlog.backlogItems.length > 0
-    if (!hasIncomplete && !hasBacklog) return null
+    const backlogCount = backlog.backlogItems.length
 
     return (
       <div className="mt-4 space-y-2">
@@ -1552,14 +1551,12 @@ export default function DailyLogEditor({ targetDate, onSave }: DailyLogEditorPro
               ⚠️ 미완료 {incompleteTasks.length}개
             </button>
           )}
-          {hasBacklog && (
-            <button
-              onClick={() => setShowBacklogSheet(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              📋 나중에 {backlog.backlogItems.length}개
-            </button>
-          )}
+          <button
+            onClick={() => setShowBacklogSheet(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            📋 나중에{backlogCount > 0 ? ` ${backlogCount}개` : ''}
+          </button>
         </div>
 
         {/* 미완료 드롭다운 */}
