@@ -17,6 +17,7 @@ import {
 import { ko } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/useAuth'
+import { getHolidays, buildHolidayMap } from '@/lib/holidays'
 
 interface CalendarViewProps {
   selectedDate: string
@@ -34,6 +35,12 @@ export default function CalendarView({ selectedDate, onDateSelect }: CalendarVie
   const { user } = useAuth()
   const [currentMonth, setCurrentMonth] = useState(parseISO(selectedDate))
   const [dateStats, setDateStats] = useState<DateStats>({})
+  const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map())
+
+  // 공휴일 fetch (연도 단위 캐시)
+  useEffect(() => {
+    getHolidays(currentMonth.getFullYear()).then(h => setHolidayMap(buildHolidayMap(h)))
+  }, [currentMonth.getFullYear()])
 
   // 날짜별 통계 불러오기
   useEffect(() => {
@@ -124,15 +131,25 @@ export default function CalendarView({ selectedDate, onDateSelect }: CalendarVie
           const isCurrentMonth = isSameMonth(day, currentMonth)
           const stats = dateStats[dateStr]
           const hasData = stats && stats.tasksCount > 0
+          const holidayName = isCurrentMonth ? holidayMap.get(dateStr) : undefined
+          const dow = day.getDay()
+
+          const textColor = !isCurrentMonth
+            ? 'text-gray-300'
+            : holidayName || dow === 0
+              ? 'text-red-500'
+              : dow === 6
+                ? 'text-blue-500'
+                : 'text-gray-700'
 
           return (
             <button
               key={dateStr}
               onClick={() => onDateSelect(dateStr)}
+              title={holidayName}
               className={`
                 relative aspect-square flex flex-col items-center justify-center rounded-lg text-sm transition-all
-                ${!isCurrentMonth ? 'text-gray-300' : 'text-gray-700'}
-                ${isSelected ? 'bg-primary-500 text-white' : 'hover:bg-gray-100'}
+                ${isSelected ? 'bg-primary-500 text-white' : `${textColor} hover:bg-gray-100`}
               `}
             >
               <span className={isSelected ? 'font-bold' : ''}>

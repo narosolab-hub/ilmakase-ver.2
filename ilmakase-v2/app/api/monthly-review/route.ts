@@ -15,16 +15,28 @@ async function getWorkSummary(
   const monthStart = format(startOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
   const monthEnd = format(endOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd')
 
-  const { data: workLogs } = await supabase
+  const { data: rawLogs } = await supabase
     .from('work_logs')
-    .select('content, detail, subtasks, progress, is_completed, project_id')
+    .select('content, detail, subtasks, progress, is_completed, project_id, work_date')
     .eq('user_id', userId)
     .gte('work_date', monthStart)
     .lte('work_date', monthEnd)
+    .or('status.is.null,status.neq.backlog')
 
-  if (!workLogs || workLogs.length === 0) {
-    return { totalTasks: 0, completedTasks: 0, projects: [] }
+  if (!rawLogs || rawLogs.length === 0) {
+    return { totalTasks: 0, completedTasks: 0, projects: [], dailyActivity: [] }
   }
+
+  // carry-over 중복 제거: content+project_id 기준 최신 work_date 1건만 유지
+  const uniqueMap = new Map<string, typeof rawLogs[0]>()
+  for (const log of rawLogs) {
+    const key = `${log.project_id ?? '__none__'}:${log.content}`
+    const existing = uniqueMap.get(key)
+    if (!existing || log.work_date > existing.work_date) {
+      uniqueMap.set(key, log)
+    }
+  }
+  const workLogs = Array.from(uniqueMap.values())
 
   // 프로젝트 이름 가져오기
   const projectIds = [...new Set(workLogs.map(w => w.project_id).filter(Boolean))] as string[]
@@ -69,10 +81,25 @@ async function getWorkSummary(
   const totalTasks = workLogs.length
   const completedTasks = workLogs.filter(w => w.is_completed).length
 
+  // 날짜별 활동 집계 (히트맵용)
+  const dailyMap = new Map<string, { taskCount: number; completedCount: number }>()
+  for (const log of workLogs) {
+    const date = log.work_date
+    const existing = dailyMap.get(date) ?? { taskCount: 0, completedCount: 0 }
+    dailyMap.set(date, {
+      taskCount: existing.taskCount + 1,
+      completedCount: existing.completedCount + (log.is_completed ? 1 : 0),
+    })
+  }
+  const dailyActivity = Array.from(dailyMap.entries())
+    .map(([date, stats]) => ({ date, ...stats }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
   return {
     totalTasks,
     completedTasks,
     projects: Array.from(groups.values()).sort((a, b) => b.totalCount - a.totalCount),
+    dailyActivity,
   }
 }
 

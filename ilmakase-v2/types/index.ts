@@ -67,10 +67,17 @@ export interface ProjectWorkGroup {
   totalCount: number
 }
 
+export interface DailyActivity {
+  date: string // 'yyyy-MM-dd'
+  taskCount: number
+  completedCount: number
+}
+
 export interface MonthlyWorkSummary {
   totalTasks: number
   completedTasks: number
   projects: ProjectWorkGroup[]
+  dailyActivity: DailyActivity[]
 }
 
 // 경력기술서 문서 타입 (저장된 문서)

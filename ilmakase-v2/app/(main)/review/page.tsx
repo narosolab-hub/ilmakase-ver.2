@@ -130,6 +130,7 @@ export default function ReviewPage() {
       const data = await res.json()
       setReview(data.review)
       dataCache.set(cacheKeys.monthlyReview(user.id, selectedMonth), data.review)
+      toast.success('회고가 저장됐어요')
     } catch (err) {
       console.error('KPT 저장 실패:', err)
       toast.error('KPT 저장에 실패했습니다')
@@ -229,32 +230,66 @@ export default function ReviewPage() {
           <div className="text-center py-12 text-gray-500">로딩 중...</div>
         ) : (
           <div className="space-y-6">
-            {/* 요약 바 */}
+            {/* 요약 바 + 프로젝트 분포 */}
             {workSummary && workSummary.totalTasks > 0 && (
-              <div className="flex items-center gap-4 bg-white rounded-2xl border border-gray-200 shadow-sm px-6 py-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">업무일</span>
-                  <span className="font-bold text-gray-900">{review?.total_work_days ?? '-'}일</span>
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-6 py-4">
+                {/* 통계 */}
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">업무일</span>
+                    <span className="font-bold text-gray-900">{review?.total_work_days ?? '-'}일</span>
+                  </div>
+                  <div className="w-px h-6 bg-gray-200" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">업무</span>
+                    <span className="font-bold text-gray-900">{workSummary.totalTasks}개</span>
+                  </div>
+                  <div className="w-px h-6 bg-gray-200" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">완료율</span>
+                    <span className="font-bold text-primary-600">
+                      {Math.round((workSummary.completedTasks / workSummary.totalTasks) * 100)}%
+                    </span>
+                  </div>
                 </div>
-                <div className="w-px h-6 bg-gray-200" />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">업무</span>
-                  <span className="font-bold text-gray-900">{workSummary.totalTasks}개</span>
-                </div>
-                <div className="w-px h-6 bg-gray-200" />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">완료율</span>
-                  <span className="font-bold text-primary-600">
-                    {workSummary.totalTasks > 0
-                      ? Math.round((workSummary.completedTasks / workSummary.totalTasks) * 100)
-                      : 0}%
-                  </span>
-                </div>
+
+                {/* 프로젝트 분포 */}
+                {workSummary.projects.length > 0 && (
+                  <div className="mt-3">
+                    <div className="h-2 rounded-full overflow-hidden flex mb-2">
+                      {workSummary.projects.map((p, i) => {
+                        const pct = Math.round((p.totalCount / workSummary.totalTasks) * 100)
+                        const colors = ['bg-primary-500', 'bg-blue-400', 'bg-emerald-400', 'bg-amber-400', 'bg-purple-400', 'bg-rose-400']
+                        return (
+                          <div
+                            key={p.projectId ?? '__none__'}
+                            className={colors[i % colors.length]}
+                            style={{ width: `${pct}%` }}
+                            title={`${p.projectName} ${pct}%`}
+                          />
+                        )
+                      })}
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      {workSummary.projects.map((p, i) => {
+                        const pct = Math.round((p.totalCount / workSummary.totalTasks) * 100)
+                        const dotColors = ['bg-primary-500', 'bg-blue-400', 'bg-emerald-400', 'bg-amber-400', 'bg-purple-400', 'bg-rose-400']
+                        return (
+                          <div key={p.projectId ?? '__none__'} className="flex items-center gap-1.5">
+                            <div className={`w-2 h-2 rounded-sm flex-shrink-0 ${dotColors[i % dotColors.length]}`} />
+                            <span className="text-xs text-gray-600">{p.projectName}</span>
+                            <span className="text-xs text-gray-400">{pct}%</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* 섹션 1: 이번 달 뭐 했지? */}
-            {workSummary && <MonthlyWorkSummary workSummary={workSummary} />}
+            {/* 섹션 1: 이번 달 뭐 했지? (기본 접힘) */}
+            {workSummary && <MonthlyWorkSummary workSummary={workSummary} yearMonth={selectedMonth} />}
 
             {/* 섹션 2: AI 사수 피드백 */}
             <MentorFeedback
