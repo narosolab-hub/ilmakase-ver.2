@@ -471,7 +471,7 @@ export default function ProjectDetailPanel({
                   const memoKey = `${wl.id}:${memo.id}`
                   const isEditingThis = editingMemoKey === memoKey
                   return (
-                    <div key={memo.id} className="group bg-gray-50 rounded-lg border border-gray-100 p-2.5">
+                    <div key={memo.id} className="group bg-gray-50 rounded-lg border border-gray-100 p-2 pl-4">
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-[10px] text-gray-400">{formatEntryDate(memo.created_at)}</span>
                         {!isEditingThis && (
@@ -491,10 +491,11 @@ export default function ProjectDetailPanel({
                         <div className="space-y-1.5">
                           <textarea
                             value={editMemoText}
-                            onChange={e => setEditMemoText(e.target.value)}
-                            rows={3}
+                            onChange={e => { setEditMemoText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }}
+                            ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }}
+                            rows={1}
                             autoFocus
-                            className="w-full text-[13px] p-2 border border-primary-300 rounded-lg resize-none outline-none bg-white"
+                            className="w-full text-[12px] text-gray-500 leading-relaxed p-2 border border-primary-300 rounded-lg resize-none outline-none bg-white overflow-hidden"
                           />
                           <div className="flex gap-1.5 justify-end">
                             <button onClick={() => { setEditingMemoKey(null); setEditMemoText('') }} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">취소</button>
@@ -507,7 +508,7 @@ export default function ProjectDetailPanel({
                         </div>
                       ) : (
                         <>
-                          <p className={`text-[13px] text-gray-600 whitespace-pre-wrap leading-relaxed ${!isExpanded && isLong ? 'line-clamp-3' : ''}`}>
+                          <p className={`text-[12px] text-gray-500 whitespace-pre-wrap leading-relaxed ${!isExpanded && isLong ? 'line-clamp-3' : ''}`}>
                             {memo.content}
                           </p>
                           {isLong && (
@@ -533,11 +534,11 @@ export default function ProjectDetailPanel({
                   <div className="space-y-1.5">
                     <textarea
                       value={newMemoText}
-                      onChange={e => setNewMemoText(e.target.value)}
-                      rows={2}
+                      onChange={e => { setNewMemoText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }}
+                      rows={1}
                       autoFocus
                       placeholder="메모를 입력하세요..."
-                      className="w-full text-[13px] p-2.5 border border-gray-200 rounded-lg resize-none outline-none focus:border-primary-400 bg-white"
+                      className="w-full text-[12px] text-gray-500 leading-relaxed p-2.5 border border-gray-200 rounded-lg resize-none outline-none focus:border-primary-400 bg-white overflow-hidden"
                     />
                     <div className="flex gap-1.5 justify-end">
                       <button onClick={() => { setAddingMemoFor(null); setNewMemoText('') }} className="text-xs text-gray-500 px-2 py-1">취소</button>
