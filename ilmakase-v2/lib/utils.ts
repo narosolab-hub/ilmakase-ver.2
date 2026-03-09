@@ -65,6 +65,16 @@ export function cn(...classes: (string | boolean | undefined | null)[]): string 
   return classes.filter(Boolean).join(' ')
 }
 
+// AI 응답에서 마크다운 기호 제거 (**, *, ##, # 등)
+export function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold**
+    .replace(/\*(.+?)\*/g, '$1')        // *italic*
+    .replace(/^#{1,6}\s+/gm, '')        // # 제목
+    .replace(/^>\s+/gm, '')             // > 인용
+    .replace(/`(.+?)`/g, '$1')          // `코드`
+}
+
 // 기간 계산 (개월 수)
 export function calculatePeriodMonths(start: string, end: string): number {
   const startDate = parseISO(start)

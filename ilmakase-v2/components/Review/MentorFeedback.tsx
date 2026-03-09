@@ -1,6 +1,7 @@
 'use client'
 
 import { Button } from '@/components/UI'
+import { stripMarkdown } from '@/lib/utils'
 import type { MentorFeedback as MentorFeedbackType, MentorPoint } from '@/types'
 
 interface Props {
@@ -15,11 +16,11 @@ function PointCard({ point, color }: { point: MentorPoint; color: 'emerald' | 'a
 
   return (
     <div className={`border-l-4 ${borderColor} bg-white rounded-r-xl p-4`}>
-      <h5 className="font-medium text-gray-900 mb-1">{point.title}</h5>
-      <p className="text-sm text-gray-600">{point.detail}</p>
+      <h5 className="font-medium text-gray-900 mb-1">{stripMarkdown(point.title)}</h5>
+      <p className="text-sm text-gray-600">{stripMarkdown(point.detail)}</p>
       {point.relatedWork && (
         <p className="text-xs text-gray-400 mt-2">
-          관련: {point.relatedWork}
+          관련: {stripMarkdown(point.relatedWork)}
         </p>
       )}
     </div>
@@ -71,7 +72,7 @@ export function MentorFeedback({ feedback, generating, hasWorkLogs, onGenerate }
       <div className="bg-primary-50 border border-primary-100 rounded-xl p-4 mb-6">
         <div className="flex items-start gap-3">
           <span className="text-2xl flex-shrink-0">🧑‍💼</span>
-          <p className="text-gray-800 leading-relaxed">{feedback.mentorSummary}</p>
+          <p className="text-gray-800 leading-relaxed">{stripMarkdown(feedback.mentorSummary)}</p>
         </div>
       </div>
 
@@ -113,7 +114,7 @@ export function MentorFeedback({ feedback, generating, hasWorkLogs, onGenerate }
             {feedback.nextMonthTips.map((tip, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
                 <span className="text-primary-500 mt-0.5 flex-shrink-0">•</span>
-                <span>{tip}</span>
+                <span>{stripMarkdown(tip)}</span>
               </li>
             ))}
           </ul>
